@@ -11,7 +11,11 @@ import {
   FIVE_FACTOR_WEIGHTS, HARD_FILTER,
   mlModels, mlSignals, trainingRuns, regimeData,
   btdCoreResult, contrarianResult, mlEnhancedResult, nvdaEarningsResult,
-  btdStrategySummary, dipEvents, mlDipModel, spyBars
+  btdStrategySummary, dipEvents, mlDipModel, spyBars,
+  // Institutional Data Center
+  fundamentalUniverse, priceVolumeUniverse,
+  currentMacroSnapshot, currentERPSnapshot,
+  macroHistory, erpHistory, dataCenterHealth,
 } from './data/usMarketData'
 
 const app = new Hono()
@@ -218,6 +222,66 @@ app.get('/api/btd/spy-bars', (c) => {
 
 // ── API: Performance ────────────────────────────────────────────────────────
 app.get('/api/performance', (c) => c.json(generatePerformanceReport()))
+
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║  INSTITUTIONAL DATA CENTER APIs                                         ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
+
+// ── Section I: Macro / Liquidity / Sentiment ───────────────────────────────
+app.get('/api/dc/macro/current', (c) => c.json(currentMacroSnapshot))
+app.get('/api/dc/macro/history', (c) => {
+  const limit = parseInt(c.req.query('limit') || '60')
+  return c.json({ total: macroHistory.length, data: macroHistory.slice(-limit) })
+})
+
+// ── Section II: ERP (Equity Risk Premium) ─────────────────────────────────
+app.get('/api/dc/erp/current', (c) => c.json(currentERPSnapshot))
+app.get('/api/dc/erp/history', (c) => {
+  const limit = parseInt(c.req.query('limit') || '60')
+  return c.json({ total: erpHistory.length, data: erpHistory.slice(-limit) })
+})
+
+// ── Section III: Price / Volume Data ──────────────────────────────────────
+app.get('/api/dc/pricevol', (c) => {
+  const ticker = c.req.query('ticker')
+  if (ticker) {
+    const item = priceVolumeUniverse.find(p => p.ticker === ticker.toUpperCase())
+    return item ? c.json(item) : c.json({ error: 'Not found' }, 404)
+  }
+  return c.json({ total: priceVolumeUniverse.length, data: priceVolumeUniverse })
+})
+
+// ── Section IV: Fundamental / GAAP-Adjusted Valuation ─────────────────────
+app.get('/api/dc/fundamental', (c) => {
+  const ticker = c.req.query('ticker')
+  const sort   = c.req.query('sort') || 'evEbitdaPercentile'
+  if (ticker) {
+    const item = fundamentalUniverse.find(f => f.ticker === ticker.toUpperCase())
+    return item ? c.json(item) : c.json({ error: 'Not found' }, 404)
+  }
+  const sorted = [...fundamentalUniverse].sort((a, b) => (a as any)[sort] - (b as any)[sort])
+  return c.json({
+    total: sorted.length,
+    gaapAdjustmentNote: 'All EBITDA figures are Adjusted (SBC added back). FCF = OCF - CapEx - Capitalized Software.',
+    data: sorted,
+  })
+})
+
+// ── Section V: Data Center Health & Engineering ────────────────────────────
+app.get('/api/dc/health', (c) => c.json(dataCenterHealth))
+
+// ── Full Dashboard payload (single call for dashboard page) ───────────────
+app.get('/api/dc/dashboard', (c) => {
+  return c.json({
+    macro:   currentMacroSnapshot,
+    erp:     currentERPSnapshot,
+    topPriceVol: priceVolumeUniverse.filter(p => p.volumeRatio > 1.2 || p.rsi14 < 40),
+    cheapestByEVEbitda: [...fundamentalUniverse].sort((a,b) => a.evEbitda - b.evEbitda).slice(0, 4),
+    health:  dataCenterHealth,
+    macroChart: macroHistory.slice(-60),
+    erpChart:   erpHistory.slice(-60),
+  })
+})
 
 // ── MAIN PAGE ────────────────────────────────────────────────────────────────
 app.get('/', (c) => {

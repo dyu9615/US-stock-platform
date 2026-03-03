@@ -100,338 +100,754 @@ const fmt = {
 const scoreColor = s => s>=85?'bg-emerald-500':s>=70?'bg-cyan-500':s>=55?'bg-amber-500':'bg-red-500'
 
 // ╔══════════════════════════════════════════════════════════════════════╗
-// ║  1. DASHBOARD                                                        ║
+// ║  1. DASHBOARD  — Panic / Liquidity + Valuation Monitor              ║
 // ╚══════════════════════════════════════════════════════════════════════╝
 async function renderDashboard(el) {
-  const [overRes, perfRes, mktRes] = await Promise.all([
-    axios.get(`${API}/api/overview`),
-    axios.get(`${API}/api/performance`),
-    axios.get(`${API}/api/us/market-overview`),
-  ])
-  const o = overRes.data, p = perfRes.data, m = mktRes.data
-  const recentNav = p.navHistory.slice(-90)
+  el.innerHTML = `<div class="flex items-center justify-center h-32 text-gray-400">
+    <i class="fas fa-spinner fa-spin mr-2"></i>Loading market monitor…</div>`;
 
-  el.innerHTML = `
-  <!-- KPI ROW -->
-  <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-    ${kpiCard('总资产', fmt.money(o.totalAssets), '', 'fas fa-wallet', 'text-cyan-400')}
-    ${kpiCard('总收益', fmt.money(o.totalPnl), fmt.pct(o.totalPnlPct), 'fas fa-chart-line', o.totalPnl>=0?'text-emerald-400':'text-red-400')}
-    ${kpiCard('今日盈亏', fmt.money(o.dailyPnl), fmt.pct(o.dailyPnlPct), 'fas fa-calendar-day', o.dailyPnl>=0?'text-emerald-400':'text-red-400')}
-    ${kpiCard('夏普比率', fmt.dec(o.sharpe), `最大回撤 ${o.maxDrawdown.toFixed(1)}%`, 'fas fa-balance-scale', 'text-amber-400')}
+  try {
+    const [macroRes, erpRes, erpHistRes, macroHistRes] = await Promise.all([
+      axios.get(`${API}/api/dc/macro/current`),
+      axios.get(`${API}/api/dc/erp/current`),
+      axios.get(`${API}/api/dc/erp/history?days=60`),
+      axios.get(`${API}/api/dc/macro/history?days=60`)
+    ]);
+    const m = macroRes.data;
+    const e = erpRes.data;
+    const erpH = erpHistRes.data.data || [];
+    const macH = macroHistRes.data.data || [];
+
+    // ── helper colours ──────────────────────────────────────────────────
+    function signalColor(sig) {
+      if (sig === 'panic' || sig === 'distress' || sig === 'overvalued') return '#ef4444';
+      if (sig === 'warning' || sig === 'elevated')  return '#f59e0b';
+      if (sig === 'undervalued' || sig === 'attractive') return '#10b981';
+      return '#6b7280'; // neutral / normal
+    }
+    function signalBg(sig) {
+      if (sig === 'panic' || sig === 'distress' || sig === 'overvalued') return 'bg-red-900/30 border-red-500/40';
+      if (sig === 'warning' || sig === 'elevated')  return 'bg-yellow-900/30 border-yellow-500/40';
+      if (sig === 'undervalued' || sig === 'attractive') return 'bg-emerald-900/30 border-emerald-500/40';
+      return 'bg-gray-800/60 border-gray-600/40';
+    }
+    function badge(sig, label) {
+      const map = { panic:'bg-red-500', distress:'bg-red-500', overvalued:'bg-red-500',
+                    warning:'bg-yellow-500', elevated:'bg-yellow-500',
+                    undervalued:'bg-emerald-500', attractive:'bg-emerald-500',
+                    normal:'bg-gray-500', neutral:'bg-gray-500' };
+      const cls = map[sig] || 'bg-gray-500';
+      return `<span class="${cls} text-white text-xs font-bold px-2 py-0.5 rounded-full uppercase">${label||sig}</span>`;
+    }
+
+    // ── panic score gauge ────────────────────────────────────────────────
+    const panicPct   = Math.min((m.panicScore / 100) * 100, 100);
+    const panicColor = m.panicScore >= 60 ? '#ef4444' : m.panicScore >= 30 ? '#f59e0b' : '#10b981';
+
+    // ── VIX term-structure label ─────────────────────────────────────────
+    const vixTSLabel = m.vixContango ? 'Contango (normal)' : '⚠ Backwardation (PANIC)';
+    const vixTSSig   = m.vixContango ? 'normal' : 'panic';
+
+    // ── HY OAS colour ────────────────────────────────────────────────────
+    const hyColor = m.hyOas > 800 ? '#ef4444' : m.hyOas > 500 ? '#f59e0b' : '#10b981';
+    const hyLabel = m.hyOas > 800 ? 'Credit Distress' : m.hyOas > 500 ? 'Elevated' : m.hyOas > 400 ? 'Caution' : 'Tight';
+
+    // ── breadth bar ──────────────────────────────────────────────────────
+    const brdColor = m.pctAbove200ma < 15 ? '#ef4444' : m.pctAbove200ma < 30 ? '#f59e0b' : '#10b981';
+
+    // ── put/call colour ──────────────────────────────────────────────────
+    const pcColor  = m.putCallRatio > 1.5 ? '#ef4444' : m.putCallRatio > 1.1 ? '#f59e0b' : '#10b981';
+
+    // ── ERP colours ──────────────────────────────────────────────────────
+    const erpColor = e.erp < 1.0 ? '#ef4444' : e.erp < 2.5 ? '#f59e0b' : '#10b981';
+    const erpSig   = e.erp < 1.0 ? 'overvalued' : e.erp < 2.5 ? 'warning' : 'normal';
+
+    // ── Mini sparkline helper (returns canvas id, caller must draw after inject) ──
+    function sparkId(n) { return `spark-${n}-${Date.now()}`; }
+
+    const vixSparkId  = 'spark-vix';
+    const hySparkId   = 'spark-hy';
+    const erpSparkId  = 'spark-erp';
+    const brdSparkId  = 'spark-brd';
+
+    el.innerHTML = `
+<!-- ═══ TOP ROW: HEADER + PANIC GAUGE ═════════════════════════════════ -->
+<div class="mb-6 flex items-start justify-between gap-4 flex-wrap">
+  <div>
+    <h2 class="text-2xl font-bold text-white flex items-center gap-2">
+      <i class="fas fa-satellite-dish text-blue-400"></i>
+      Institutional Market Monitor
+      <span class="text-sm font-normal text-gray-400 ml-2">Daily Snapshot · ${m.date}</span>
+    </h2>
+    <p class="text-gray-400 text-sm mt-1">Sentiment & Liquidity · Panic Indicators · Valuation · ERP</p>
+  </div>
+  <!-- Panic Score Gauge -->
+  <div class="bg-gray-800/80 border border-gray-700 rounded-xl p-4 text-center min-w-[160px]">
+    <div class="text-xs text-gray-400 mb-2 font-semibold uppercase tracking-wide">Panic Score</div>
+    <div class="relative w-24 h-24 mx-auto">
+      <svg viewBox="0 0 36 36" class="w-24 h-24 -rotate-90">
+        <circle cx="18" cy="18" r="15.9155" fill="none" stroke="#374151" stroke-width="3"/>
+        <circle cx="18" cy="18" r="15.9155" fill="none" stroke="${panicColor}" stroke-width="3"
+          stroke-dasharray="${panicPct} ${100 - panicPct}" stroke-linecap="round"/>
+      </svg>
+      <div class="absolute inset-0 flex flex-col items-center justify-center">
+        <span class="text-2xl font-bold" style="color:${panicColor}">${m.panicScore}</span>
+        <span class="text-xs text-gray-400">/100</span>
+      </div>
+    </div>
+    <div class="mt-2 text-sm font-bold" style="color:${panicColor}">${m.panicLabel}</div>
+  </div>
+</div>
+
+<!-- ═══ SECTION 1: SENTIMENT & LIQUIDITY PANIC INDICATORS ══════════════ -->
+<div class="mb-3 flex items-center gap-2">
+  <div class="w-1 h-5 bg-red-500 rounded"></div>
+  <h3 class="text-sm font-bold text-gray-200 uppercase tracking-wider">Sentiment & Liquidity — Panic Indicators</h3>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+
+  <!-- VIX Term Structure -->
+  <div class="bg-gray-800/70 border ${signalBg(vixTSSig)} rounded-xl p-4 flex flex-col gap-2">
+    <div class="flex items-center justify-between">
+      <span class="text-xs text-gray-400 uppercase font-semibold">VIX Term Structure</span>
+      ${badge(vixTSSig)}
+    </div>
+    <div class="flex items-end gap-3 mt-1">
+      <div class="text-center">
+        <div class="text-2xl font-bold text-white">${m.vix.toFixed(1)}</div>
+        <div class="text-xs text-gray-500">Spot VIX</div>
+      </div>
+      <div class="text-gray-600 text-lg">→</div>
+      <div class="text-center">
+        <div class="text-xl font-semibold ${m.vixContango ? 'text-gray-300' : 'text-red-400'}">${m.vx1.toFixed(1)}</div>
+        <div class="text-xs text-gray-500">VX1 (1M)</div>
+      </div>
+      <div class="text-gray-600 text-lg">→</div>
+      <div class="text-center">
+        <div class="text-xl font-semibold text-gray-400">${m.vx3.toFixed(1)}</div>
+        <div class="text-xs text-gray-500">VX3 (3M)</div>
+      </div>
+    </div>
+    <div class="text-xs ${m.vixContango ? 'text-emerald-400' : 'text-red-400'} font-medium">${vixTSLabel}</div>
+    <div class="text-xs text-gray-500 mt-1">Slope: ${(m.vixTermStructure * 100).toFixed(1)}% · <b>Panic</b> when VIX > VX1</div>
+    <canvas id="${vixSparkId}" height="40" class="mt-1 w-full"></canvas>
   </div>
 
-  <!-- NAV CHART + MARKET -->
-  <div class="grid grid-cols-3 gap-4 mb-6">
-    <div class="col-span-2 card p-4">
-      <div class="flex items-center justify-between mb-4">
-        <div>
-          <div class="text-sm font-semibold text-white">净值走势</div>
-          <div class="text-xs text-gray-500">组合净值 vs S&P 500 Benchmark</div>
-        </div>
-        <div class="flex gap-3 text-xs">
-          <span class="flex items-center gap-1"><span class="w-3 h-1 bg-cyan-400 rounded inline-block"></span>组合净值</span>
-          <span class="flex items-center gap-1"><span class="w-3 h-1 bg-gray-500 rounded inline-block"></span>Benchmark</span>
-        </div>
-      </div>
-      <div class="chart-wrap h-48"><canvas id="navChart"></canvas></div>
+  <!-- HY Credit Spread -->
+  <div class="bg-gray-800/70 border ${signalBg(m.hyOasSignal)} rounded-xl p-4 flex flex-col gap-2">
+    <div class="flex items-center justify-between">
+      <span class="text-xs text-gray-400 uppercase font-semibold">HY Credit Spread (OAS)</span>
+      ${badge(m.hyOasSignal, hyLabel)}
     </div>
-    <div class="card p-4">
-      <div class="text-sm font-semibold text-white mb-3">策略状态</div>
-      <div class="space-y-2 mb-4">
-        ${[['运行中','running','emerald'],[' 暂停','paused','amber'],['已停止','stopped','gray']].map(([label,status,color])=>`
-        <div class="flex items-center justify-between">
-          <span class="text-xs text-gray-400 flex items-center gap-2">
-            <span class="w-2 h-2 rounded-full bg-${color}-400"></span>${label}
-          </span>
-          <span class="text-sm font-semibold text-white">${window._strategies?.filter(s=>s.status===status).length||'—'}</span>
-        </div>`).join('')}
+    <div class="flex items-baseline gap-2 mt-2">
+      <span class="text-3xl font-bold" style="color:${hyColor}">${m.hyOas}</span>
+      <span class="text-gray-400 text-sm">bps</span>
+    </div>
+    <!-- Threshold bar -->
+    <div class="mt-2">
+      <div class="flex justify-between text-xs text-gray-500 mb-1">
+        <span>0</span><span class="text-yellow-500">400</span><span class="text-red-500">800</span><span>1200</span>
       </div>
-      <div class="text-xs text-gray-500 mb-2">今日交易量</div>
-      <div class="text-2xl font-bold text-white">${o.todayTrades}</div>
-      <div class="text-xs text-gray-500 mt-3 mb-1">持仓数量</div>
-      <div class="text-2xl font-bold text-white">${o.openPositions}</div>
+      <div class="relative h-2 bg-gray-700 rounded-full">
+        <div class="absolute h-2 rounded-full" style="width:${Math.min(m.hyOas/12,100)}%;background:${hyColor}"></div>
+        <div class="absolute top-0 h-2 w-0.5 bg-yellow-500/60" style="left:33.3%"></div>
+        <div class="absolute top-0 h-2 w-0.5 bg-red-500/60"    style="left:66.6%"></div>
+      </div>
+    </div>
+    <div class="text-xs text-gray-500">ICE BofA US HY OAS (FRED: BAMLH0A0HYM2) · <b>Distress</b> >800 bps</div>
+    <canvas id="${hySparkId}" height="40" class="mt-1 w-full"></canvas>
+  </div>
+
+  <!-- Market Breadth -->
+  <div class="bg-gray-800/70 border ${signalBg(m.breadthSignal)} rounded-xl p-4 flex flex-col gap-2">
+    <div class="flex items-center justify-between">
+      <span class="text-xs text-gray-400 uppercase font-semibold">Market Breadth (S5TH200)</span>
+      ${badge(m.breadthSignal)}
+    </div>
+    <div class="flex items-baseline gap-2 mt-2">
+      <span class="text-3xl font-bold" style="color:${brdColor}">${m.pctAbove200ma.toFixed(1)}%</span>
+      <span class="text-gray-400 text-sm">above 200 DMA</span>
+    </div>
+    <!-- Arc gauge -->
+    <div class="relative h-3 bg-gray-700 rounded-full mt-2">
+      <div class="h-3 rounded-full transition-all" style="width:${m.pctAbove200ma}%;background:${brdColor}"></div>
+      <div class="absolute top-0 h-3 w-0.5 bg-red-500/70"    style="left:15%"></div>
+      <div class="absolute top-0 h-3 w-0.5 bg-yellow-500/70" style="left:30%"></div>
+    </div>
+    <div class="flex justify-between text-xs text-gray-600 mt-0.5">
+      <span class="text-red-400">0% — Panic</span><span class="text-yellow-500">30%</span><span>100%</span>
+    </div>
+    <div class="text-xs text-gray-500">% of S&P 500 stocks above 200DMA · <b>Panic</b> <15%, <b>Warn</b> <30%</div>
+    <canvas id="${brdSparkId}" height="40" class="mt-1 w-full"></canvas>
+  </div>
+
+  <!-- Put/Call Ratio -->
+  <div class="bg-gray-800/70 border ${signalBg(m.putCallSignal)} rounded-xl p-4 flex flex-col gap-2">
+    <div class="flex items-center justify-between">
+      <span class="text-xs text-gray-400 uppercase font-semibold">CBOE Equity Put/Call</span>
+      ${badge(m.putCallSignal)}
+    </div>
+    <div class="flex items-baseline gap-2 mt-2">
+      <span class="text-3xl font-bold" style="color:${pcColor}">${m.putCallRatio.toFixed(2)}</span>
+      <span class="text-gray-400 text-sm">×</span>
+    </div>
+    <!-- Zones -->
+    <div class="grid grid-cols-3 gap-1 mt-2 text-center text-xs">
+      <div class="rounded py-1 ${m.putCallRatio < 0.8 ? 'bg-emerald-700 text-white' : 'bg-gray-700 text-gray-400'}">
+        <div>&lt;0.8</div><div class="font-semibold">Greed</div>
+      </div>
+      <div class="rounded py-1 ${m.putCallRatio >= 0.8 && m.putCallRatio < 1.1 ? 'bg-gray-500 text-white' : 'bg-gray-700 text-gray-400'}">
+        <div>0.8–1.1</div><div class="font-semibold">Neutral</div>
+      </div>
+      <div class="rounded py-1 ${m.putCallRatio >= 1.1 ? 'bg-red-700 text-white' : 'bg-gray-700 text-gray-400'}">
+        <div>&gt;1.1</div><div class="font-semibold">Fear</div>
+      </div>
+    </div>
+    <div class="text-xs text-gray-500 mt-1">CBOE Total Put Volume ÷ Call Volume · <b>Extreme fear</b> >1.5</div>
+  </div>
+</div><!-- end panic grid -->
+
+<!-- ═══ RATES ROW ══════════════════════════════════════════════════════ -->
+<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+  ${[ ['10Y Treasury', m.usTreasury10y.toFixed(2)+'%', 'DGS10 (FRED)', m.usTreasury10y > 5 ? '#ef4444' : '#6b7280'],
+      ['2Y Treasury',  m.usTreasury2y.toFixed(2)+'%',  'DGS2 (FRED)',  m.usTreasury2y > 5 ? '#ef4444' : '#6b7280'],
+      ['Yield Curve (10-2)', (m.yieldCurve > 0 ? '+':'')+m.yieldCurve+' bps', m.yieldCurveInverted ? '⚠ Inverted (recession watch)' : 'Normal', m.yieldCurveInverted ? '#f59e0b' : '#10b981'],
+      ['S&P 500 FWD P/E', '21.8×', 'vs 10Y avg 17-18×', '#f59e0b']
+    ].map(([lbl,val,sub,col]) => `
+  <div class="bg-gray-800/60 border border-gray-700/50 rounded-lg p-3">
+    <div class="text-xs text-gray-500 mb-1">${lbl}</div>
+    <div class="text-xl font-bold" style="color:${col}">${val}</div>
+    <div class="text-xs text-gray-600 mt-0.5">${sub}</div>
+  </div>`).join('')}
+</div>
+
+<!-- ═══ SECTION 2: VALUATION — ERP ════════════════════════════════════ -->
+<div class="mb-3 flex items-center gap-2">
+  <div class="w-1 h-5 bg-yellow-500 rounded"></div>
+  <h3 class="text-sm font-bold text-gray-200 uppercase tracking-wider">Equity Risk Premium — Over/Undervaluation</h3>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+
+  <!-- ERP Gauge -->
+  <div class="bg-gray-800/70 border ${signalBg(erpSig)} rounded-xl p-5 flex flex-col">
+    <div class="flex items-center justify-between mb-3">
+      <span class="text-xs text-gray-400 uppercase font-semibold">Equity Risk Premium</span>
+      ${badge(erpSig)}
+    </div>
+    <div class="flex items-baseline gap-2">
+      <span class="text-4xl font-bold" style="color:${erpColor}">${e.erp.toFixed(2)}</span>
+      <span class="text-gray-400">%</span>
+    </div>
+    <div class="text-xs text-gray-500 mt-1">= Fwd Earnings Yield ${e.sp500EarningsYield.toFixed(2)}% − 10Y Tsy ${e.usTreasury10y.toFixed(2)}%</div>
+    <div class="mt-3 grid grid-cols-3 gap-1 text-center text-xs">
+      ${[['<1%','Overvalued','bg-red-700'], ['1-3%','Fair','bg-gray-600'], ['>3%','Attractive','bg-emerald-700']].map(([r,l,c])=>`
+      <div class="rounded py-1.5 ${e.erp < 1 && r==='<1%' ? c+' text-white' : e.erp >=1 && e.erp < 3 && r==='1-3%' ? c+' text-white' : e.erp >=3 && r==='>3%' ? c+' text-white' : 'bg-gray-800 text-gray-600'}">
+        <div class="font-bold">${r}</div><div>${l}</div></div>`).join('')}
+    </div>
+    <div class="mt-3 text-xs text-gray-500">
+      Historical percentile: <span class="font-bold text-white">${e.erpHistoricalPercentile}th</span>
+      <div class="h-1.5 bg-gray-700 rounded-full mt-1">
+        <div class="h-1.5 rounded-full" style="width:${e.erpHistoricalPercentile}%;background:${erpColor}"></div>
+      </div>
+    </div>
+    <div class="mt-3 p-2 bg-gray-900/50 rounded text-xs text-gray-400 leading-relaxed">${e.erpNote}</div>
+  </div>
+
+  <!-- ERP History Chart -->
+  <div class="bg-gray-800/70 border border-gray-700/50 rounded-xl p-4 flex flex-col">
+    <div class="text-xs text-gray-400 uppercase font-semibold mb-3">ERP 60-Day Trend</div>
+    <canvas id="${erpSparkId}" class="flex-1" style="min-height:160px"></canvas>
+    <div class="flex gap-4 mt-3 text-xs text-gray-500">
+      <span class="flex items-center gap-1"><span class="w-3 h-0.5 bg-yellow-400 inline-block"></span>ERP %</span>
+      <span class="flex items-center gap-1"><span class="w-3 h-0.5 bg-red-400 inline-block"></span>1% danger</span>
     </div>
   </div>
 
-  <!-- MARKET OVERVIEW + STRATEGY TABLE -->
-  <div class="grid grid-cols-3 gap-4 mb-6">
-    <div class="card p-4">
-      <div class="text-sm font-semibold text-white mb-3 flex items-center gap-2">
-        <i class="fas fa-globe text-cyan-400"></i> 美股市场概览
-      </div>
-      <div class="space-y-2">
-        ${m.indices.map(i=>`
-        <div class="flex items-center justify-between py-1.5 border-b border-[#111827] last:border-0">
-          <span class="text-xs text-gray-400">${i.name}</span>
-          <div class="text-right">
-            <div class="text-xs font-mono text-white">${i.value.toLocaleString()}</div>
-            <div class="text-[10px] ${i.changePct>=0?'text-emerald-400':'text-red-400'}">${fmt.pct(i.changePct)}</div>
-          </div>
-        </div>`).join('')}
-      </div>
-    </div>
-    <div class="col-span-2 card p-4">
-      <div class="text-sm font-semibold text-white mb-3">策略表现概览</div>
-      <div class="overflow-auto max-h-52">
-        <table class="data-table"><thead><tr>
-          <th>策略名称</th><th>状态</th><th>权重</th><th>收益</th><th>夏普</th><th>胜率</th>
-        </tr></thead><tbody id="dashStratTable"></tbody></table>
-      </div>
+  <!-- VIX History Chart -->
+  <div class="bg-gray-800/70 border border-gray-700/50 rounded-xl p-4 flex flex-col">
+    <div class="text-xs text-gray-400 uppercase font-semibold mb-3">VIX Spot vs VX1 — 60D</div>
+    <canvas id="spark-vix-hist" class="flex-1" style="min-height:160px"></canvas>
+    <div class="flex gap-4 mt-3 text-xs text-gray-500">
+      <span class="flex items-center gap-1"><span class="w-3 h-0.5 bg-blue-400 inline-block"></span>VIX Spot</span>
+      <span class="flex items-center gap-1"><span class="w-3 h-0.5 bg-purple-400 inline-block"></span>VX1</span>
     </div>
   </div>
+</div>
 
-  <!-- FACTOR ATTRIBUTION + RATES -->
-  <div class="grid grid-cols-2 gap-4">
-    <div class="card p-4">
-      <div class="text-sm font-semibold text-white mb-3">收益归因 (Bloomberg PE风格)</div>
-      <div class="chart-wrap h-48"><canvas id="attrChart"></canvas></div>
-    </div>
-    <div class="card p-4">
-      <div class="text-sm font-semibold text-white mb-3 flex items-center gap-2">
-        <i class="fas fa-landmark text-amber-400"></i> 利率 & FX
-      </div>
-      <div class="grid grid-cols-2 gap-3">
-        <div>
-          <div class="text-[10px] text-gray-500 uppercase mb-1">利率</div>
-          ${m.rates.slice(0,4).map(r=>`
-          <div class="flex justify-between text-xs py-1 border-b border-[#111827]">
-            <span class="text-gray-400">${r.name}</span>
-            <span class="font-mono text-white">${r.value}${r.value>10?'bp':'%'}</span>
-          </div>`).join('')}
-        </div>
-        <div>
-          <div class="text-[10px] text-gray-500 uppercase mb-1">外汇 & 商品</div>
-          ${m.fx.slice(0,3).map(f=>`
-          <div class="flex justify-between text-xs py-1 border-b border-[#111827]">
-            <span class="text-gray-400">${f.pair}</span>
-            <span class="font-mono ${f.change>=0?'text-emerald-400':'text-red-400'}">${f.value.toFixed(4)}</span>
-          </div>`).join('')}
-          ${m.commodities.slice(0,1).map(c=>`
-          <div class="flex justify-between text-xs py-1">
-            <span class="text-gray-400">${c.name}</span>
-            <span class="font-mono text-amber-400">$${c.value.toLocaleString()}</span>
-          </div>`).join('')}
-        </div>
-      </div>
-    </div>
-  </div>`
+<!-- ═══ COMPOSITE SIGNAL TABLE ══════════════════════════════════════════ -->
+<div class="mb-3 flex items-center gap-2">
+  <div class="w-1 h-5 bg-blue-500 rounded"></div>
+  <h3 class="text-sm font-bold text-gray-200 uppercase tracking-wider">Composite Signal Summary</h3>
+</div>
+<div class="bg-gray-800/60 border border-gray-700/40 rounded-xl overflow-hidden mb-4">
+  <table class="w-full text-sm">
+    <thead><tr class="border-b border-gray-700/50 text-xs text-gray-500 uppercase">
+      <th class="py-2 px-4 text-left">Indicator</th>
+      <th class="py-2 px-4 text-right">Value</th>
+      <th class="py-2 px-4 text-center">Signal</th>
+      <th class="py-2 px-4 text-left">Threshold / Note</th>
+      <th class="py-2 px-4 text-left">Source</th>
+    </tr></thead>
+    <tbody class="divide-y divide-gray-700/30">
+      ${[
+        ['VIX Spot', m.vix.toFixed(1), vixTSSig, 'Backwardation (VIX > VX1) = Panic', 'Yahoo Finance'],
+        ['VIX Term Slope', (m.vixTermStructure*100).toFixed(1)+'%', vixTSSig, '< 0 means contango (calm)', 'VX Futures'],
+        ['HY OAS Spread', m.hyOas+' bps', m.hyOasSignal, '>400 caution · >800 distress', 'FRED BAMLH0A0HYM2'],
+        ['Market Breadth', m.pctAbove200ma.toFixed(1)+'%', m.breadthSignal, '<15% panic · <30% warning', 'S5TH200X'],
+        ['Put/Call Ratio', m.putCallRatio.toFixed(2)+'×', m.putCallSignal, '>1.1 fear · >1.5 extreme fear', 'CBOE Equity'],
+        ['10Y–2Y Spread', m.yieldCurve+' bps', m.yieldCurveInverted ? 'warning' : 'normal', 'Inversion = recession watch', 'FRED DGS10/DGS2'],
+        ['ERP (Eq. Risk Prem)', e.erp.toFixed(2)+'%', erpSig, '<1% overvalued · <1.5% caution', 'FWD P/E − 10Y'],
+        ['ERP Percentile', e.erpHistoricalPercentile+'th', erpSig, 'Bottom 10% = bubble territory', 'Historical'],
+      ].map(([ind, val, sig, note, src]) => `
+      <tr class="hover:bg-gray-700/20">
+        <td class="py-2 px-4 text-gray-300 font-medium">${ind}</td>
+        <td class="py-2 px-4 text-right font-mono font-bold" style="color:${signalColor(sig)}">${val}</td>
+        <td class="py-2 px-4 text-center">${badge(sig)}</td>
+        <td class="py-2 px-4 text-gray-500 text-xs">${note}</td>
+        <td class="py-2 px-4 text-gray-600 text-xs">${src}</td>
+      </tr>`).join('')}
+    </tbody>
+  </table>
+</div>
+`;
 
-  // Load strategy data
-  const { data: strategies } = await axios.get(`${API}/api/strategies`)
-  window._strategies = strategies
-  const tbody = document.getElementById('dashStratTable')
-  if (tbody) tbody.innerHTML = strategies.map(s => `<tr>
-    <td class="text-white font-medium">${s.name}</td>
-    <td><span class="badge badge-${s.status}">${s.status}</span></td>
-    <td class="text-gray-300">${s.weight}%</td>
-    <td class="font-mono ${s.pnl>=0?'pos':'neg'}">${fmt.pct(s.pnlPct)}</td>
-    <td class="text-amber-400">${s.sharpe.toFixed(2)}</td>
-    <td class="text-gray-300">${s.winRate.toFixed(1)}%</td>
-  </tr>`).join('')
+    // ── Draw sparklines & charts ────────────────────────────────────────
+    // VIX spot sparkline (last 30 from history)
+    const vixData = macH.slice(-30);
+    if (vixData.length && document.getElementById(vixSparkId)) {
+      new Chart(document.getElementById(vixSparkId), {
+        type: 'line',
+        data: { labels: vixData.map(d => d.date),
+                datasets: [{ data: vixData.map(d => d.vix), borderColor: '#60a5fa',
+                             borderWidth: 1.5, pointRadius: 0, tension: 0.4, fill: false }] },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
+                   scales: { x: { display: false }, y: { display: false } } }
+      });
+    }
 
-  // NAV Chart
-  const navCtx = document.getElementById('navChart')?.getContext('2d')
-  if (navCtx) {
-    const labels = recentNav.filter((_,i)=>i%3===0).map(d=>d.date.slice(5))
-    const navData = recentNav.filter((_,i)=>i%3===0).map(d=>d.nav)
-    const bData = recentNav.filter((_,i)=>i%3===0).map(d=>d.benchmark)
-    charts.nav = new Chart(navCtx, {
-      type: 'line',
-      data: {
-        labels,
-        datasets: [
-          { label:'组合净值', data: navData, borderColor:'#22d3ee', borderWidth:2, pointRadius:0, fill: { target:'origin', above:'rgba(34,211,238,0.06)' }, tension:0.4 },
-          { label:'Benchmark', data: bData, borderColor:'#4b5563', borderWidth:1.5, pointRadius:0, borderDash:[4,4], tension:0.4 },
-        ]
-      },
-      options: chartOpts('净值')
-    })
-  }
+    // HY OAS sparkline
+    if (macH.length && document.getElementById(hySparkId)) {
+      const hyData = macH.slice(-30);
+      new Chart(document.getElementById(hySparkId), {
+        type: 'line',
+        data: { labels: hyData.map(d => d.date),
+                datasets: [{ data: hyData.map(d => d.hyOas), borderColor: hyColor,
+                             borderWidth: 1.5, pointRadius: 0, tension: 0.4, fill: false }] },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
+                   scales: { x: { display: false }, y: { display: false } } }
+      });
+    }
 
-  // Attribution Chart
-  const attrCtx = document.getElementById('attrChart')?.getContext('2d')
-  if (attrCtx && p.factorAttribution) {
-    const pos = p.factorAttribution.filter(f=>f.contribution>=0)
-    const neg = p.factorAttribution.filter(f=>f.contribution<0)
-    charts.attr = new Chart(attrCtx, {
-      type: 'bar',
-      data: {
-        labels: p.factorAttribution.map(f=>f.factor),
-        datasets: [{
-          data: p.factorAttribution.map(f=>f.contribution/1000),
-          backgroundColor: p.factorAttribution.map(f=>f.contribution>=0?'rgba(16,185,129,0.7)':'rgba(239,68,68,0.7)'),
-          borderRadius: 4,
-        }]
-      },
-      options: { ...chartOpts('收益 ($K)'), plugins:{ legend:{ display:false } } }
-    })
+    // Breadth sparkline
+    if (macH.length && document.getElementById(brdSparkId)) {
+      const brd = macH.slice(-30);
+      new Chart(document.getElementById(brdSparkId), {
+        type: 'line',
+        data: { labels: brd.map(d => d.date),
+                datasets: [{ data: brd.map(d => d.pctAbove200ma), borderColor: brdColor,
+                             borderWidth: 1.5, pointRadius: 0, tension: 0.4, fill: false }] },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
+                   scales: { x: { display: false }, y: { display: false, min: 0, max: 100 } } }
+      });
+    }
+
+    // ERP 60-day trend
+    if (erpH.length && document.getElementById(erpSparkId)) {
+      new Chart(document.getElementById(erpSparkId), {
+        type: 'line',
+        data: {
+          labels: erpH.map(d => d.date),
+          datasets: [
+            { label: 'ERP %', data: erpH.map(d => d.erp),
+              borderColor: '#facc15', borderWidth: 2, pointRadius: 0, tension: 0.4, fill: false },
+            { label: '1% danger', data: erpH.map(() => 1.0),
+              borderColor: '#ef4444', borderWidth: 1, borderDash: [4, 3], pointRadius: 0, fill: false }
+          ]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { display: false },
+            y: { ticks: { color: '#6b7280', font: { size: 9 } }, grid: { color: '#374151' } }
+          }
+        }
+      });
+    }
+
+    // VIX vs VX1 60-day
+    if (macH.length && document.getElementById('spark-vix-hist')) {
+      new Chart(document.getElementById('spark-vix-hist'), {
+        type: 'line',
+        data: {
+          labels: macH.map(d => d.date),
+          datasets: [
+            { label: 'VIX', data: macH.map(d => d.vix),
+              borderColor: '#60a5fa', borderWidth: 2, pointRadius: 0, tension: 0.4, fill: false },
+            { label: 'VX1', data: macH.map(d => d.vx1),
+              borderColor: '#a78bfa', borderWidth: 2, pointRadius: 0, tension: 0.4, fill: false, borderDash: [3, 2] }
+          ]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { display: false },
+            y: { ticks: { color: '#6b7280', font: { size: 9 } }, grid: { color: '#374151' } }
+          }
+        }
+      });
+    }
+
+  } catch(err) {
+    el.innerHTML = `<div class="text-red-400 p-6">Error loading dashboard: ${err.message}</div>`;
+    console.error(err);
   }
 }
 
 // ╔══════════════════════════════════════════════════════════════════════╗
-// ║  2. DATA CENTER                                                       ║
+// ║  2. DATA CENTER — Fundamental Valuation Hub                         ║
 // ╚══════════════════════════════════════════════════════════════════════╝
 async function renderDataCenter(el) {
-  const [mktRes, quotesRes, earningsRes, filingsRes] = await Promise.all([
-    axios.get(`${API}/api/us/market-overview`),
-    axios.get(`${API}/api/market/quotes`),
-    axios.get(`${API}/api/us/earnings`),
-    axios.get(`${API}/api/us/filings`),
-  ])
-  const m = mktRes.data, q = quotesRes.data, earnings = earningsRes.data, filings = filingsRes.data
+  el.innerHTML = `<div class="flex items-center justify-center h-32 text-gray-400">
+    <i class="fas fa-spinner fa-spin mr-2"></i>Loading data center…</div>`;
 
-  el.innerHTML = `
-  <!-- DATA SOURCE WATERFALL -->
-  <div class="bbg-alert mb-4 flex items-center gap-3">
-    <i class="fas fa-info-circle text-yellow-400"></i>
-    <span class="font-semibold">数据源优先级 (Bloomberg Waterfall)：</span>
-    <span class="text-gray-300 text-xs">① Bloomberg Terminal (BLPAPI)</span>
-    <i class="fas fa-arrow-right text-gray-600"></i>
-    <span class="text-gray-300 text-xs">② yfinance (交叉验证)</span>
-    <i class="fas fa-arrow-right text-gray-600"></i>
-    <span class="text-gray-300 text-xs">③ SEC EDGAR (XBRL)</span>
-    <i class="fas fa-arrow-right text-gray-600"></i>
-    <span class="text-gray-300 text-xs">④ Web Fetch</span>
-    <span class="ml-auto text-[10px] bg-amber-500/20 text-amber-400 px-2 py-1 rounded">偏差>5%时发出⚠️预警</span>
+  try {
+    const [fundRes, erpRes, healthRes, macroRes] = await Promise.all([
+      axios.get(`${API}/api/dc/fundamental`),
+      axios.get(`${API}/api/dc/erp/current`),
+      axios.get(`${API}/api/dc/health`),
+      axios.get(`${API}/api/dc/macro/current`)
+    ]);
+    const stocks = fundRes.data.data || [];
+    const e = erpRes.data;
+    const health = healthRes.data;
+    const m = macroRes.data;
+
+    // ── active tab state ────────────────────────────────────────────────
+    let dcTab = 'valuation';
+
+    function renderDCContent() {
+      const tabContent = document.getElementById('dc-tab-content');
+      if (!tabContent) return;
+
+      if (dcTab === 'valuation') {
+        // Sort by EV/EBITDA ascending (cheapest first)
+        const sorted = [...stocks].sort((a, b) => a.evEbitda - b.evEbitda);
+        tabContent.innerHTML = `
+<div class="mb-3 p-3 bg-blue-900/20 border border-blue-500/30 rounded-lg text-xs text-blue-300">
+  <i class="fas fa-info-circle mr-1"></i>
+  ${fundRes.data.gaapAdjustmentNote} · All data is Point-in-Time (PIT) compliant — last filing date shown.
+</div>
+<div class="overflow-x-auto">
+<table class="w-full text-xs">
+  <thead><tr class="border-b border-gray-700/50 text-gray-500 uppercase text-xs">
+    <th class="py-2 px-3 text-left">Ticker</th>
+    <th class="py-2 px-3 text-left">Sector</th>
+    <th class="py-2 px-3 text-right">Mkt Cap ($B)</th>
+    <th class="py-2 px-3 text-right">EV ($B)</th>
+    <th class="py-2 px-3 text-right">Adj EBITDA</th>
+    <th class="py-2 px-3 text-right">EV/EBITDA</th>
+    <th class="py-2 px-3 text-right">Pctile</th>
+    <th class="py-2 px-3 text-right">EV/Sales</th>
+    <th class="py-2 px-3 text-right">Fwd P/E</th>
+    <th class="py-2 px-3 text-right">FCF Yield</th>
+    <th class="py-2 px-3 text-right">Net Lev</th>
+    <th class="py-2 px-3 text-center">PIT Date</th>
+  </tr></thead>
+  <tbody class="divide-y divide-gray-700/25">
+  ${sorted.map(s => {
+    const evEbColor = s.evEbitdaPercentile <= 10 ? '#10b981' : s.evEbitdaPercentile <= 30 ? '#6ee7b7' :
+                      s.evEbitdaPercentile >= 80 ? '#ef4444' : '#d1d5db';
+    const fcfColor  = s.fcfYield >= 6 ? '#10b981' : s.fcfYield >= 3 ? '#fbbf24' : '#ef4444';
+    const levColor  = s.netLeverage > 3 ? '#ef4444' : s.netLeverage > 2 ? '#f59e0b' : '#10b981';
+    const pitBadge  = s.pitCompliant
+      ? '<span class="text-emerald-400 text-xs">✓ PIT</span>'
+      : '<span class="text-red-400 text-xs">⚠ Lag</span>';
+    const undervalFlag = s.evEbitdaPercentile <= 10 && s.fcfYield > 4
+      ? '<span class="ml-1 bg-emerald-600 text-white text-xs px-1 py-0.5 rounded">★ Value</span>' : '';
+    return `<tr class="hover:bg-gray-700/20 ${s.evEbitdaPercentile <= 10 ? 'bg-emerald-900/10' : ''}">
+      <td class="py-2 px-3 font-bold text-white">${s.ticker}${undervalFlag}</td>
+      <td class="py-2 px-3 text-gray-400 max-w-[120px] truncate" title="${s.sector}">${s.name}</td>
+      <td class="py-2 px-3 text-right text-gray-300">$${s.marketCap.toLocaleString()}</td>
+      <td class="py-2 px-3 text-right text-gray-300">$${s.ev.toLocaleString()}</td>
+      <td class="py-2 px-3 text-right text-gray-300">$${s.adjustedEbitda.toFixed(1)}B</td>
+      <td class="py-2 px-3 text-right font-bold" style="color:${evEbColor}">${s.evEbitda.toFixed(1)}×</td>
+      <td class="py-2 px-3 text-right">
+        <span class="text-xs font-semibold" style="color:${evEbColor}">${s.evEbitdaPercentile}%ile</span>
+      </td>
+      <td class="py-2 px-3 text-right text-gray-400">${s.evSales.toFixed(1)}×</td>
+      <td class="py-2 px-3 text-right text-gray-400">${s.forwardPE.toFixed(1)}×</td>
+      <td class="py-2 px-3 text-right font-semibold" style="color:${fcfColor}">${s.fcfYield.toFixed(1)}%</td>
+      <td class="py-2 px-3 text-right font-semibold" style="color:${levColor}">${s.netLeverage.toFixed(1)}×</td>
+      <td class="py-2 px-3 text-center">${pitBadge}<div class="text-gray-600 text-xs">${s.lastReportDate}</div></td>
+    </tr>`;
+  }).join('')}
+  </tbody>
+</table></div>
+
+<!-- Undervaluation Signals -->
+<div class="mt-4">
+  <div class="mb-2 flex items-center gap-2">
+    <div class="w-1 h-4 bg-emerald-500 rounded"></div>
+    <span class="text-xs font-bold text-gray-300 uppercase">Undervaluation Signals — EV/EBITDA ≤10th Pctile + FCF Yield >4% + Low Leverage</span>
   </div>
-
-  <!-- TABS -->
-  <div class="flex gap-2 mb-4">
-    ${['market','earnings','filings','quotes'].map((t,i)=>
-      `<button class="tab-btn ${i===0?'active':''}" onclick="dcTab('${t}',this)">${{market:'🌐 市场总览',earnings:'📊 财报追踪',filings:'📋 SEC归档',quotes:'💹 行情报价'}[t]}</button>`
-    ).join('')}
-  </div>
-
-  <div id="dc-market">
-    <div class="grid grid-cols-4 gap-4 mb-5">
-      ${m.indices.map(i=>`
-      <div class="kpi-card">
-        <div class="text-xs text-gray-500 mb-1">${i.name}</div>
-        <div class="text-xl font-bold font-mono text-white">${i.value.toLocaleString()}</div>
-        <div class="text-sm ${i.changePct>=0?'text-emerald-400':'text-red-400'} font-medium">${fmt.pct(i.changePct)}</div>
-        <div class="text-xs text-gray-600">${i.change>=0?'+':''}${i.change.toFixed(1)} pts</div>
-      </div>`).join('')}
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+  ${stocks.filter(s => s.evEbitdaPercentile <= 20 && s.fcfYield > 3).slice(0, 6).map(s => `
+    <div class="bg-emerald-900/15 border border-emerald-600/30 rounded-lg p-3">
+      <div class="flex items-center justify-between mb-2">
+        <span class="font-bold text-white text-sm">${s.ticker}</span>
+        <span class="text-xs text-gray-400">${s.sector.split('—')[0].trim()}</span>
+      </div>
+      <div class="grid grid-cols-3 gap-2 text-xs">
+        <div class="text-center">
+          <div class="text-emerald-400 font-bold">${s.evEbitda.toFixed(1)}×</div>
+          <div class="text-gray-500">EV/EBITDA</div>
+          <div class="text-emerald-400 text-xs">${s.evEbitdaPercentile}%ile</div>
+        </div>
+        <div class="text-center">
+          <div class="text-yellow-400 font-bold">${s.fcfYield.toFixed(1)}%</div>
+          <div class="text-gray-500">FCF Yield</div>
+          <div class="text-gray-600">(risk-free: 4.5%)</div>
+        </div>
+        <div class="text-center">
+          <div class="font-bold" style="color:${s.netLeverage > 3 ? '#ef4444' : '#10b981'}">${s.netLeverage.toFixed(1)}×</div>
+          <div class="text-gray-500">Net Lev</div>
+          <div class="text-gray-600">${s.netLeverageSignal}</div>
+        </div>
+      </div>
+      <div class="mt-2 text-xs text-gray-500 bg-gray-900/40 rounded p-1.5">${s.adjustedEbitdaNote||'Adj EBITDA = OpInc + D&A + SBC'}</div>
     </div>
-    <div class="grid grid-cols-3 gap-4">
-      <div class="card p-4">
-        <div class="text-xs font-semibold text-gray-400 uppercase mb-3">利率曲线</div>
-        ${m.rates.map(r=>`
-        <div class="flex justify-between items-center py-2 border-b border-[#111827] last:border-0">
-          <span class="text-xs text-gray-400">${r.name}</span>
-          <div class="text-right">
-            <span class="font-mono text-sm text-white">${typeof r.value==='number'&&r.value>10?r.value+'bp':r.value+'%'}</span>
-            <span class="text-xs ml-2 ${r.change>=0?'text-emerald-400':'text-red-400'}">${r.change>=0?'+':''}${r.change}</span>
+  `).join('')}
+  </div>
+</div>`;
+
+      } else if (dcTab === 'sector') {
+        // Sector multiples (EV/EBITDA & EV/Sales)
+        const sectors = [...new Set(stocks.map(s => s.sector.split('—')[0].trim()))];
+        tabContent.innerHTML = `
+<div class="mb-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+  <div class="bg-gray-800/70 border border-gray-700/50 rounded-xl p-4">
+    <div class="text-xs text-gray-400 uppercase font-semibold mb-3">EV/EBITDA by Ticker — TMT Universe</div>
+    <canvas id="dc-eveb-chart" height="220"></canvas>
+  </div>
+  <div class="bg-gray-800/70 border border-gray-700/50 rounded-xl p-4">
+    <div class="text-xs text-gray-400 uppercase font-semibold mb-3">FCF Yield vs Risk-Free Rate (4.52%)</div>
+    <canvas id="dc-fcf-chart" height="220"></canvas>
+  </div>
+</div>
+<div class="overflow-x-auto">
+<table class="w-full text-sm">
+  <thead><tr class="border-b border-gray-700/50 text-xs text-gray-500 uppercase">
+    <th class="py-2 px-4 text-left">Company</th>
+    <th class="py-2 px-4 text-right">Mkt Cap</th>
+    <th class="py-2 px-4 text-right">EV/EBITDA</th>
+    <th class="py-2 px-4 text-right">EV/Sales</th>
+    <th class="py-2 px-4 text-right">Fwd P/E</th>
+    <th class="py-2 px-4 text-right">FCF Yield</th>
+    <th class="py-2 px-4 text-right">Earn Yield</th>
+    <th class="py-2 px-4 text-left">Signal</th>
+  </tr></thead>
+  <tbody class="divide-y divide-gray-700/30">
+  ${stocks.map(s => {
+    const sig = s.fcfYield > 6 && m.usTreasury10y < 5 ? 'undervalued' :
+                s.evEbitdaPercentile >= 80 ? 'overvalued' : 'neutral';
+    const fcfVsRf = s.fcfYield - m.usTreasury10y;
+    const rfColor = fcfVsRf > 0 ? '#10b981' : '#ef4444';
+    return `<tr class="hover:bg-gray-700/20">
+      <td class="py-2 px-4">
+        <div class="font-semibold text-white">${s.ticker}</div>
+        <div class="text-xs text-gray-500">${s.sector.split('—')[0].trim()}</div>
+      </td>
+      <td class="py-2 px-4 text-right text-gray-300">$${s.marketCap}B</td>
+      <td class="py-2 px-4 text-right font-mono">${s.evEbitda.toFixed(1)}×</td>
+      <td class="py-2 px-4 text-right font-mono text-gray-400">${s.evSales.toFixed(1)}×</td>
+      <td class="py-2 px-4 text-right font-mono text-gray-400">${s.forwardPE.toFixed(0)}×</td>
+      <td class="py-2 px-4 text-right font-semibold" style="color:${fcfVsRf > 0 ? '#10b981' : '#ef4444'}">${s.fcfYield.toFixed(1)}%</td>
+      <td class="py-2 px-4 text-right text-gray-400">${s.earningsYield.toFixed(1)}%</td>
+      <td class="py-2 px-4">
+        <span class="px-2 py-0.5 rounded-full text-xs font-bold ${sig==='undervalued' ? 'bg-emerald-700 text-emerald-100' : sig==='overvalued' ? 'bg-red-700 text-red-100' : 'bg-gray-700 text-gray-300'}">${sig}</span>
+      </td>
+    </tr>`;
+  }).join('')}
+  </tbody>
+</table></div>`;
+
+        setTimeout(() => {
+          // EV/EBITDA bar chart
+          const c1 = document.getElementById('dc-eveb-chart');
+          if (c1) {
+            const sortedByEv = [...stocks].sort((a,b) => a.evEbitda - b.evEbitda);
+            new Chart(c1, {
+              type: 'bar',
+              data: {
+                labels: sortedByEv.map(s => s.ticker),
+                datasets: [{
+                  label: 'EV/EBITDA',
+                  data: sortedByEv.map(s => s.evEbitda),
+                  backgroundColor: sortedByEv.map(s =>
+                    s.evEbitdaPercentile <= 20 ? 'rgba(16,185,129,0.7)' :
+                    s.evEbitdaPercentile >= 70 ? 'rgba(239,68,68,0.7)' : 'rgba(99,102,241,0.6)'),
+                  borderRadius: 4
+                }]
+              },
+              options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                  x: { ticks: { color: '#9ca3af' }, grid: { color: '#374151' } },
+                  y: { ticks: { color: '#9ca3af' }, grid: { color: '#374151' } }
+                }
+              }
+            });
+          }
+          // FCF Yield chart
+          const c2 = document.getElementById('dc-fcf-chart');
+          if (c2) {
+            const sortedByFcf = [...stocks].sort((a,b) => b.fcfYield - a.fcfYield);
+            new Chart(c2, {
+              type: 'bar',
+              data: {
+                labels: sortedByFcf.map(s => s.ticker),
+                datasets: [
+                  { label: 'FCF Yield %', data: sortedByFcf.map(s => s.fcfYield),
+                    backgroundColor: sortedByFcf.map(s => s.fcfYield > m.usTreasury10y ? 'rgba(16,185,129,0.7)' : 'rgba(239,68,68,0.7)'),
+                    borderRadius: 4 },
+                  { label: '10Y Risk-Free', data: sortedByFcf.map(() => m.usTreasury10y),
+                    type: 'line', borderColor: '#fbbf24', borderWidth: 2,
+                    borderDash: [5, 3], pointRadius: 0, fill: false }
+                ]
+              },
+              options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { labels: { color: '#9ca3af', font: { size: 10 } } } },
+                scales: {
+                  x: { ticks: { color: '#9ca3af' }, grid: { color: '#374151' } },
+                  y: { ticks: { color: '#9ca3af', callback: v => v+'%' }, grid: { color: '#374151' } }
+                }
+              }
+            });
+          }
+        }, 50);
+
+      } else if (dcTab === 'pipeline') {
+        // Data pipeline health
+        const srcs = health.dataSources || [];
+        tabContent.innerHTML = `
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+  <!-- Sources -->
+  <div>
+    <div class="mb-3 text-xs font-bold text-gray-300 uppercase">Data Sources & Freshness</div>
+    <div class="space-y-2">
+    ${srcs.map(s => `
+      <div class="bg-gray-800/60 border border-gray-700/40 rounded-lg p-3 flex items-center gap-3">
+        <div class="w-2 h-2 rounded-full ${s.status === 'live' ? 'bg-emerald-400 animate-pulse' : s.status === 'connected' ? 'bg-emerald-400 animate-pulse' : s.status === 'mock' ? 'bg-yellow-400' : 'bg-gray-500'}"></div>
+        <div class="flex-1">
+          <div class="flex items-center justify-between">
+            <span class="text-sm font-semibold text-white">${s.name}</span>
+            <span class="text-xs px-2 py-0.5 rounded-full ${(s.status==='live'||s.status==='connected') ? 'bg-emerald-800 text-emerald-200' : 'bg-yellow-800 text-yellow-200'}">${s.status||'mock'}</span>
           </div>
-        </div>`).join('')}
+          ${s.apiCode ? `<div class="text-xs text-gray-500 mt-0.5 font-mono">${s.apiCode}</div>` : ''}
+          ${s.compliance ? `<div class="text-xs text-blue-400 mt-0.5">${s.compliance}</div>` : ''}
+          ${s.updateFreq ? `<div class="text-xs text-gray-600">Update: ${s.updateFreq}</div>` : ''}
+          ${s.latency ? `<div class="text-xs text-gray-600">Latency: ${s.latency}</div>` : ''}
+        </div>
       </div>
-      <div class="card p-4">
-        <div class="text-xs font-semibold text-gray-400 uppercase mb-3">主要货币对</div>
-        ${m.fx.map(f=>`
-        <div class="flex justify-between items-center py-2 border-b border-[#111827] last:border-0">
-          <span class="text-xs text-gray-400">${f.pair}</span>
-          <div class="text-right">
-            <span class="font-mono text-sm text-white">${f.value.toFixed(4)}</span>
-            <span class="text-xs ml-2 ${f.change>=0?'text-emerald-400':'text-red-400'}">${f.change>=0?'+':''}${f.change.toFixed(4)}</span>
-          </div>
-        </div>`).join('')}
-      </div>
-      <div class="card p-4">
-        <div class="text-xs font-semibold text-gray-400 uppercase mb-3">大宗商品</div>
-        ${m.commodities.map(c=>`
-        <div class="flex justify-between items-center py-2 border-b border-[#111827] last:border-0">
-          <span class="text-xs text-gray-400">${c.name}</span>
-          <div class="text-right">
-            <span class="font-mono text-sm text-white">$${c.value.toLocaleString()}</span>
-            <span class="text-xs ml-2 ${c.changePct>=0?'text-emerald-400':'text-red-400'}">${fmt.pct(c.changePct)}</span>
-          </div>
-        </div>`).join('')}
-      </div>
+    `).join('')}
     </div>
   </div>
-
-  <div id="dc-earnings" class="hidden">
-    <div class="card overflow-hidden">
-      <div class="px-4 py-3 border-b border-[#1e2d4a] flex items-center justify-between">
-        <div class="text-sm font-semibold text-white">财报追踪 — EPS & Revenue Beat/Miss (Bloomberg风格)</div>
-        <div class="text-xs text-gray-500">数据源: SEC EDGAR 8-K + yfinance consensus</div>
-      </div>
-      <div class="overflow-auto">
-        <table class="data-table"><thead><tr>
-          <th>股票</th><th>季度</th><th>EPS实际</th><th>EPS预期</th><th>超预期%</th>
-          <th>收入实际($B)</th><th>收入超预期%</th><th>指引EPS</th><th>结果</th><th>分析师观点</th>
-        </tr></thead><tbody>
-          ${earnings.map(e=>`<tr>
-            <td><span class="font-bold text-white">${e.ticker}</span><div class="text-[10px] text-gray-500">${e.name}</div></td>
-            <td class="text-gray-300 text-[11px]">${e.quarter}<br><span class="text-gray-600">${e.reportDate}</span></td>
-            <td class="font-mono text-white">$${e.epsReported.toFixed(2)}</td>
-            <td class="font-mono text-gray-400">$${e.epsEstimate.toFixed(2)}</td>
-            <td class="font-mono font-bold ${e.epsSurprisePct>=5?'text-emerald-400':e.epsSurprisePct>=-2?'text-amber-400':'text-red-400'}">${e.epsSurprisePct>=0?'+':''}${e.epsSurprisePct.toFixed(1)}%</td>
-            <td class="font-mono text-white">$${e.revenueReported.toFixed(1)}B</td>
-            <td class="font-mono ${e.revenueSurprisePct>=0?'text-emerald-400':'text-red-400'}">${e.revenueSurprisePct>=0?'+':''}${e.revenueSurprisePct.toFixed(1)}%</td>
-            <td class="text-[11px] text-gray-400">$${e.guidanceEpsLow.toFixed(2)}-${e.guidanceEpsHigh.toFixed(2)}</td>
-            <td><span class="badge badge-${e.result.toLowerCase()}">${e.result}</span></td>
-            <td class="text-[10px] text-gray-400 max-w-xs">${e.analystNote.slice(0,80)}...</td>
-          </tr>`).join('')}
-        </tbody></table>
-      </div>
+  <!-- Bias Safeguards -->
+  <div>
+    <div class="mb-3 text-xs font-bold text-gray-300 uppercase">Backtest Bias Safeguards</div>
+    <div class="space-y-2">
+      ${health.pitArchitecture ? `
+      <div class="bg-emerald-900/20 border border-emerald-600/30 rounded-lg p-3">
+        <div class="text-sm font-bold text-emerald-300 mb-2">✓ Point-in-Time (PIT) Architecture</div>
+        <ul class="text-xs text-gray-400 space-y-1">
+          ${health.pitArchitecture.map(r => `<li class="flex items-start gap-1"><span class="text-emerald-500 mt-0.5">•</span>${r}</li>`).join('')}
+        </ul>
+      </div>` : ''}
+      ${health.survivorshipBias ? `
+      <div class="bg-blue-900/20 border border-blue-600/30 rounded-lg p-3">
+        <div class="text-sm font-bold text-blue-300 mb-2">✓ Survivorship Bias Mitigation</div>
+        <ul class="text-xs text-gray-400 space-y-1">
+          ${health.survivorshipBias.map(r => `<li class="flex items-start gap-1"><span class="text-blue-500 mt-0.5">•</span>${r}</li>`).join('')}
+        </ul>
+      </div>` : ''}
+      ${health.gaapAdjustments ? `
+      <div class="bg-purple-900/20 border border-purple-600/30 rounded-lg p-3">
+        <div class="text-sm font-bold text-purple-300 mb-2">GAAP Adjustment Rules</div>
+        <ul class="text-xs text-gray-400 space-y-1">
+          ${health.gaapAdjustments.map(r => `<li class="flex items-start gap-1"><span class="text-purple-500 mt-0.5">•</span>${r}</li>`).join('')}
+        </ul>
+      </div>` : ''}
+    </div>
+    <!-- ERP note -->
+    <div class="mt-4 bg-yellow-900/20 border border-yellow-600/30 rounded-lg p-3">
+      <div class="text-xs font-bold text-yellow-300 mb-1">Live ERP Warning</div>
+      <div class="text-xs text-gray-300">${e.erpNote}</div>
     </div>
   </div>
+</div>`;
+      }
+    }
 
-  <div id="dc-filings" class="hidden">
-    <div class="card overflow-hidden">
-      <div class="px-4 py-3 border-b border-[#1e2d4a] flex justify-between items-center">
-        <div class="text-sm font-semibold text-white">SEC EDGAR 官方申报文件</div>
-        <div class="text-xs text-gray-500">XBRL结构化数据 · 10-K / 10-Q / 8-K</div>
-      </div>
-      <div class="overflow-auto">
-        <table class="data-table"><thead><tr>
-          <th>股票</th><th>类型</th><th>申报日期</th><th>报告期</th><th>摘要</th><th>链接</th>
-        </tr></thead><tbody>
-          ${filings.map(f=>`<tr>
-            <td class="font-bold text-white">${f.ticker}</td>
-            <td><span class="badge ${f.formType==='10-K'?'badge-live':f.formType==='8-K'?'badge-beat':'badge-backtesting'}">${f.formType}</span></td>
-            <td class="font-mono text-gray-400 text-xs">${f.filedDate}</td>
-            <td class="text-gray-300 text-xs">${f.period}</td>
-            <td class="text-[11px] text-gray-400 max-w-sm">${f.summary.slice(0,100)}...</td>
-            <td><a href="${f.url}" target="_blank" class="text-cyan-400 hover:text-cyan-300 text-xs"><i class="fas fa-external-link-alt"></i></a></td>
-          </tr>`).join('')}
-        </tbody></table>
-      </div>
-    </div>
+    el.innerHTML = `
+<!-- Header -->
+<div class="mb-5 flex items-start justify-between flex-wrap gap-4">
+  <div>
+    <h2 class="text-2xl font-bold text-white flex items-center gap-2">
+      <i class="fas fa-database text-purple-400"></i>
+      数据中心 Data Center
+    </h2>
+    <p class="text-gray-400 text-sm mt-1">Fundamental Valuation · Sector Multiples · FCF Yield · GAAP-Adjusted · PIT-Compliant</p>
   </div>
+  <div class="flex gap-2 text-xs">
+    ${[['valuation','Valuation Table'],['sector','Sector Multiples'],['pipeline','Data Pipeline']].map(([t,l])=>`
+    <button onclick="window.__dcSetTab('${t}')" id="dc-tab-${t}"
+      class="px-3 py-1.5 rounded-lg font-semibold border transition-colors
+        ${dcTab===t ? 'bg-purple-600 border-purple-500 text-white' : 'bg-gray-800 border-gray-600 text-gray-400 hover:text-white'}">${l}</button>`).join('')}
+  </div>
+</div>
 
-  <div id="dc-quotes" class="hidden">
-    <div class="card overflow-hidden">
-      <div class="px-4 py-3 border-b border-[#1e2d4a]">
-        <div class="text-sm font-semibold text-white">A股行情报价 (模拟数据)</div>
-      </div>
-      <div class="overflow-auto">
-        <table class="data-table"><thead><tr>
-          <th>代码</th><th>名称</th><th>最新价</th><th>涨跌额</th><th>涨跌幅</th><th>成交量</th><th>成交额</th>
-        </tr></thead><tbody>
-          ${q.map(s=>`<tr>
-            <td class="font-mono text-gray-400 text-xs">${s.code}</td>
-            <td class="font-semibold text-white">${s.name}</td>
-            <td class="font-mono text-white font-bold">¥${s.price.toFixed(2)}</td>
-            <td class="font-mono ${s.change>=0?'text-emerald-400':'text-red-400'}">${s.change>=0?'+':''}${s.change.toFixed(2)}</td>
-            <td class="font-mono font-bold ${s.changePct>=0?'text-emerald-400':'text-red-400'}">${fmt.pct(s.changePct)}</td>
-            <td class="font-mono text-gray-400 text-xs">${(s.volume/10000).toFixed(0)}万</td>
-            <td class="font-mono text-gray-400 text-xs">${(s.turnover/1e8).toFixed(2)}亿</td>
-          </tr>`).join('')}
-        </tbody></table>
-      </div>
-    </div>
-  </div>`
+<!-- Mini KPI row -->
+<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+  ${[
+    ['Stocks in Universe', stocks.length, 'TMT + mega cap', '#a78bfa'],
+    ['Avg EV/EBITDA', (stocks.reduce((a,s)=>a+s.evEbitda,0)/stocks.length).toFixed(1)+'×', 'vs 10Y avg ~15×', '#60a5fa'],
+    ['Avg FCF Yield', (stocks.reduce((a,s)=>a+s.fcfYield,0)/stocks.length).toFixed(1)+'%', `vs 10Y Tsy ${m.usTreasury10y}%`, '#34d399'],
+    ['ERP', e.erp.toFixed(2)+'%', e.erpSignal, e.erp < 1 ? '#ef4444' : '#fbbf24']
+  ].map(([l,v,s,c])=>`
+  <div class="bg-gray-800/60 border border-gray-700/40 rounded-lg p-3">
+    <div class="text-xs text-gray-500 mb-1">${l}</div>
+    <div class="text-2xl font-bold" style="color:${c}">${v}</div>
+    <div class="text-xs text-gray-600">${s}</div>
+  </div>`).join('')}
+</div>
+
+<div id="dc-tab-content"></div>`;
+
+    // Set tab switcher
+    window.__dcSetTab = function(t) {
+      dcTab = t;
+      ['valuation','sector','pipeline'].forEach(x => {
+        const btn = document.getElementById(`dc-tab-${x}`);
+        if (btn) {
+          btn.className = btn.className.replace(/bg-purple-600 border-purple-500 text-white|bg-gray-800 border-gray-600 text-gray-400 hover:text-white/g, '');
+          btn.className += t === x ? ' bg-purple-600 border-purple-500 text-white' : ' bg-gray-800 border-gray-600 text-gray-400 hover:text-white';
+        }
+      });
+      renderDCContent();
+    };
+
+    renderDCContent();
+
+  } catch(err) {
+    el.innerHTML = `<div class="text-red-400 p-6">Error loading data center: ${err.message}</div>`;
+    console.error(err);
+  }
 }
 
-window.dcTab = function(tab, btn) {
-  ['market','earnings','filings','quotes'].forEach(t => {
-    const el = document.getElementById(`dc-${t}`)
-    if (el) el.classList.toggle('hidden', t !== tab)
-  })
-  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'))
-  btn.classList.add('active')
-}
 
 // ╔══════════════════════════════════════════════════════════════════════╗
 // ║  3. FIVE-FACTOR SCREENER                                             ║

@@ -1728,3 +1728,490 @@ export const btdStrategySummary = [
   status:     r.status,
   notes:      r.notes,
 }));
+
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║  INSTITUTIONAL DATA CENTER — 机构级别数据中心                            ║
+// ║  Based on Data Center.docx specification                               ║
+// ║  4 Modules: Macro/Liquidity · Price/Volume · Fundamentals · Engineering║
+// ╚══════════════════════════════════════════════════════════════════════════╝
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+export interface MacroLiquiditySnapshot {
+  date: string;
+  // Volatility Structure (Section I)
+  vix: number;               // VIX spot
+  vx1: number;               // 1-month VIX futures
+  vx3: number;               // 3-month VIX futures
+  vixTermStructure: number;  // VIX/VX1 - 1 (>0 = backwardation = extreme fear)
+  vixContango: boolean;      // true = normal; false = backwardation = panic
+  // Credit Risk
+  hyOas: number;             // ICE BofA HY OAS in bps (FRED: BAMLH0A0HYM2)
+  hyOasSignal: 'normal' | 'caution' | 'crisis';  // <400 / 400-800 / >800
+  // Rates
+  usTreasury10y: number;     // DGS10
+  usTreasury2y: number;      // DGS2
+  yieldCurve: number;        // 10Y - 2Y spread (bps)
+  yieldCurveInverted: boolean;
+  // Market Breadth
+  pctAbove200ma: number;     // % of S&P500 stocks above 200d SMA
+  breadthSignal: 'washout' | 'weak' | 'neutral' | 'strong'; // <15 / 15-40 / 40-70 / >70
+  // Derivatives Sentiment
+  putCallRatio: number;      // CBOE Equity Put/Call Ratio
+  putCallSignal: 'extreme_fear' | 'fear' | 'neutral' | 'complacency'; // >1.1 / 0.8-1.1 / 0.6-0.8 / <0.6
+  // Composite panic score 0-100
+  panicScore: number;
+  panicLabel: 'EXTREME PANIC' | 'ELEVATED FEAR' | 'MILD STRESS' | 'NORMAL' | 'COMPLACENT';
+}
+
+export interface PriceVolumeData {
+  ticker: string;
+  name: string;
+  // Adjusted prices (前复权 — includes dividends & splits)
+  adjClose: number;
+  adjCloseNote: string;   // "前复权 Adj Close — corrected for dividends & splits"
+  // Volume anomaly
+  volumeToday: number;
+  volumeSma20: number;
+  volumeRatio: number;    // today / SMA20 — >2 = institutional flush
+  witchingDayFlag: boolean; // quadruple witching exclusion flag
+  // Momentum extremes
+  rsi14: number;
+  rsiSignal: 'extreme_oversold' | 'oversold' | 'neutral' | 'overbought';
+  // ATR for dynamic stop-loss
+  atr14: number;
+  atrPct: number;         // ATR as % of price
+  // Current indicators
+  ma50: number;
+  ma200: number;
+  priceTo52wHigh: number; // % below 52-week high
+  drawdownFrom52w: number;
+}
+
+export interface FundamentalValuation {
+  ticker: string;
+  name: string;
+  sector: string;
+  // Enterprise Value (Section III)
+  marketCap: number;       // $B
+  longTermDebt: number;    // $B
+  shortTermDebt: number;   // $B
+  minorityInterest: number;// $B
+  preferredStock: number;  // $B
+  cashEquivalents: number; // $B
+  ev: number;              // $B = mktCap + LTD + STD + MI + PS - Cash
+  evNote: string;          // formula explanation
+  // Adjusted EBITDA (GAAP-adjusted)
+  operatingIncome: number; // $B
+  da: number;              // D&A $B
+  sbc: number;             // Stock-Based Compensation $B (added back!)
+  adjustedEbitda: number;  // OpInc + D&A + SBC
+  adjustedEbitdaNote: string;
+  gaapNetIncome: number;   // $B (often distorted by R&D / SBC)
+  gaapEps: number;
+  // Multiples
+  evEbitda: number;        // EV / Adj.EBITDA (TTM)
+  evEbitdaPercentile: number; // historical percentile (0-100, lower = cheaper)
+  evSales: number;         // EV / Revenue
+  forwardPE: number;
+  // Free Cash Flow Yield
+  ocf: number;             // Operating Cash Flow $B
+  capex: number;           // $B
+  capitalizedSoftware: number; // $B (often hidden capex for SaaS)
+  fcf: number;             // OCF - CapEx - Capitalized Software
+  fcfYield: number;        // FCF / MarketCap %
+  fcfYieldSignal: 'high_attractive' | 'fair' | 'low' | 'negative'; // >6% / 3-6% / 1-3% / <1%
+  // Financial Health / Net Leverage
+  totalDebt: number;       // $B
+  netDebt: number;         // Total Debt - Cash
+  netLeverage: number;     // Net Debt / Adj.EBITDA
+  netLeverageSignal: 'safe' | 'moderate' | 'watch' | 'danger'; // <1 / 1-2 / 2-3 / >3
+  // ERP contribution
+  earningsYield: number;   // 1/forwardPE %
+  // PIT compliance flag
+  lastReportDate: string;
+  pitCompliant: boolean;   // Point-in-Time data available
+}
+
+export interface ERPSnapshot {
+  date: string;
+  sp500ForwardPE: number;
+  sp500EarningsYield: number; // 1/forwardPE in %
+  usTreasury10y: number;
+  erp: number;              // EarningsYield - 10Y yield
+  erpSignal: 'overvalued' | 'rich' | 'fair' | 'cheap' | 'deeply_cheap';
+  // <1% / 1-2% / 2-3.5% / 3.5-5% / >5%
+  erpHistoricalPercentile: number;
+  erpNote: string;
+}
+
+export interface DataCenterHealth {
+  lastUpdate: string;
+  dataSources: {
+    name: string;
+    status: 'live' | 'delayed' | 'mock';
+    latency: string;
+    apiCode?: string;
+    updateFreq: string;
+    compliance: string;
+  }[];
+  pitArchitecture: {
+    enabled: boolean;
+    description: string;
+    reportingLag: string;
+    riskNote: string;
+  };
+  survivorshipBias: {
+    mitigated: boolean;
+    method: string;
+    universeSize: number;
+    historicalTickers: number;
+  };
+  gaapAdjustments: {
+    applied: boolean;
+    items: string[];
+  };
+}
+
+// ── Helper: seeded random for deterministic mock data ─────────────────────────
+function sr(seed: number) {
+  let s = seed;
+  return () => {
+    s = (s * 1664525 + 1013904223) & 0xffffffff;
+    return (s >>> 0) / 0xffffffff;
+  };
+}
+
+// ── Generate 252-day time series for macro data ───────────────────────────────
+function genMacroHistory(): MacroLiquiditySnapshot[] {
+  const rng = sr(2024);
+  const out: MacroLiquiditySnapshot[] = [];
+  const start = new Date('2024-03-01');
+  let vix = 16.0, vx1 = 17.2, vx3 = 18.5;
+  let hyOas = 320, usTy10 = 4.2, usTy2 = 4.6;
+  let breadth = 62, pcr = 0.72;
+
+  for (let i = 0; i < 252; i++) {
+    const d = new Date(start);
+    d.setDate(start.getDate() + Math.floor(i * 365 / 252));
+    if (d.getDay() === 0 || d.getDay() === 6) continue;
+
+    // Simulate shock events
+    const inCrisis = (i >= 60 && i <= 80) || (i >= 180 && i <= 200);
+    vix   += (16 - vix) * 0.05 + (rng() - 0.48) * (inCrisis ? 4 : 1.5);
+    vx1   = vix * (inCrisis ? 0.94 : 1.06) + (rng() - 0.5) * 0.8;
+    vx3   = vix * (inCrisis ? 0.90 : 1.12) + (rng() - 0.5) * 0.5;
+    hyOas += (rng() - 0.48) * (inCrisis ? 30 : 8);
+    usTy10 += (rng() - 0.5) * 0.08;
+    usTy2  += (rng() - 0.5) * 0.06;
+    breadth += (rng() - 0.5) * (inCrisis ? -8 : 3);
+    pcr    += (rng() - 0.48) * (inCrisis ? 0.12 : 0.04);
+
+    vix = Math.max(9, Math.min(60, vix));
+    vx1 = Math.max(10, Math.min(58, vx1));
+    hyOas = Math.max(200, Math.min(900, hyOas));
+    usTy10 = Math.max(1, Math.min(6, usTy10));
+    usTy2  = Math.max(0.5, Math.min(6, usTy2));
+    breadth = Math.max(5, Math.min(90, breadth));
+    pcr = Math.max(0.4, Math.min(2.0, pcr));
+
+    const termStr = vix / vx1 - 1;
+    const panicComponents = [
+      inCrisis ? 30 : 0,
+      termStr > 0.05 ? 25 : termStr > 0 ? 10 : 0,
+      hyOas > 800 ? 25 : hyOas > 400 ? 12 : 0,
+      breadth < 15 ? 20 : breadth < 30 ? 10 : 0,
+      pcr > 1.1 ? 15 : pcr > 0.9 ? 7 : 0,
+      usTy2 > usTy10 ? 10 : 0,
+    ];
+    const panicScore = Math.min(100, panicComponents.reduce((a, b) => a + b, 0));
+
+    out.push({
+      date: d.toISOString().split('T')[0],
+      vix: +vix.toFixed(1), vx1: +vx1.toFixed(1), vx3: +vx3.toFixed(1),
+      vixTermStructure: +termStr.toFixed(4),
+      vixContango: vix < vx1,
+      hyOas: +hyOas.toFixed(0),
+      hyOasSignal: hyOas > 800 ? 'crisis' : hyOas > 400 ? 'caution' : 'normal',
+      usTreasury10y: +usTy10.toFixed(2), usTreasury2y: +usTy2.toFixed(2),
+      yieldCurve: +((usTy10 - usTy2) * 100).toFixed(0),
+      yieldCurveInverted: usTy2 > usTy10,
+      pctAbove200ma: +breadth.toFixed(1),
+      breadthSignal: breadth < 15 ? 'washout' : breadth < 40 ? 'weak' : breadth < 70 ? 'neutral' : 'strong',
+      putCallRatio: +pcr.toFixed(2),
+      putCallSignal: pcr > 1.1 ? 'extreme_fear' : pcr > 0.8 ? 'fear' : pcr > 0.6 ? 'neutral' : 'complacency',
+      panicScore: +panicScore.toFixed(0),
+      panicLabel: panicScore >= 70 ? 'EXTREME PANIC' : panicScore >= 45 ? 'ELEVATED FEAR' :
+                  panicScore >= 20 ? 'MILD STRESS' : panicScore >= 8 ? 'NORMAL' : 'COMPLACENT',
+    });
+  }
+  return out;
+}
+
+// ── Generate ERP time series ──────────────────────────────────────────────────
+function genERPHistory(): ERPSnapshot[] {
+  const rng = sr(3001);
+  const out: ERPSnapshot[] = [];
+  const start = new Date('2024-03-01');
+  let pe = 21.5, ty10 = 4.25;
+
+  for (let i = 0; i < 252; i++) {
+    const d = new Date(start);
+    d.setDate(start.getDate() + Math.floor(i * 365 / 252));
+    if (d.getDay() === 0 || d.getDay() === 6) continue;
+
+    pe   += (rng() - 0.49) * 0.8;
+    ty10 += (rng() - 0.5) * 0.06;
+    pe   = Math.max(14, Math.min(32, pe));
+    ty10 = Math.max(2, Math.min(6, ty10));
+
+    const ey = 100 / pe;
+    const erp = ey - ty10;
+
+    out.push({
+      date: d.toISOString().split('T')[0],
+      sp500ForwardPE: +pe.toFixed(1),
+      sp500EarningsYield: +ey.toFixed(2),
+      usTreasury10y: +ty10.toFixed(2),
+      erp: +erp.toFixed(2),
+      erpSignal: erp < 1 ? 'overvalued' : erp < 2 ? 'rich' : erp < 3.5 ? 'fair' : erp < 5 ? 'cheap' : 'deeply_cheap',
+      erpHistoricalPercentile: Math.round(Math.max(5, Math.min(95, 50 + erp * 8))),
+      erpNote: erp < 1.5
+        ? '⚠ ERP极低：权益资产溢价不足，大盘严重Overvalued'
+        : erp > 4
+        ? '✓ ERP健康：权益资产具备吸引力，相对无风险利率有充足溢价'
+        : 'ERP处于正常区间 (2-3.5% 为历史合理中枢)',
+    });
+  }
+  return out;
+}
+
+// ── Fundamental Valuation Universe ───────────────────────────────────────────
+export const fundamentalUniverse: FundamentalValuation[] = [
+  {
+    ticker: 'NVDA', name: 'NVIDIA Corp', sector: 'Technology — Semiconductors',
+    marketCap: 2180, longTermDebt: 8.5, shortTermDebt: 1.2, minorityInterest: 0,
+    preferredStock: 0, cashEquivalents: 26.0,
+    ev: 2163.7,
+    evNote: 'EV = $2,180B + $8.5B + $1.2B + $0 + $0 − $26.0B = $2,163.7B',
+    operatingIncome: 64.0, da: 3.1, sbc: 8.4,
+    adjustedEbitda: 75.5,
+    adjustedEbitdaNote: 'Adj.EBITDA = $64.0B OpInc + $3.1B D&A + $8.4B SBC (added back — non-cash GAAP distortion)',
+    gaapNetIncome: 55.6, gaapEps: 22.2,
+    evEbitda: 28.7, evEbitdaPercentile: 62, evSales: 17.4,
+    forwardPE: 31.2, earningsYield: 3.21,
+    ocf: 60.8, capex: 2.8, capitalizedSoftware: 0,
+    fcf: 58.0, fcfYield: 2.66, fcfYieldSignal: 'fair',
+    totalDebt: 9.7, netDebt: -16.3, netLeverage: -0.22,
+    netLeverageSignal: 'safe',
+    lastReportDate: '2025-02-26', pitCompliant: true,
+  },
+  {
+    ticker: 'META', name: 'Meta Platforms Inc', sector: 'Technology — Internet',
+    marketCap: 1510, longTermDebt: 28.8, shortTermDebt: 0, minorityInterest: 0,
+    preferredStock: 0, cashEquivalents: 77.8,
+    ev: 1461.0,
+    evNote: 'EV = $1,510B + $28.8B + $0 + $0 + $0 − $77.8B = $1,461B',
+    operatingIncome: 57.1, da: 10.4, sbc: 14.9,
+    adjustedEbitda: 82.4,
+    adjustedEbitdaNote: 'Adj.EBITDA = $57.1B + $10.4B D&A + $14.9B SBC. GAAP understates true cash generation by ~18% due to SBC.',
+    gaapNetIncome: 50.7, gaapEps: 19.94,
+    evEbitda: 17.7, evEbitdaPercentile: 28, evSales: 8.2,
+    forwardPE: 24.6, earningsYield: 4.07,
+    ocf: 70.2, capex: 37.3, capitalizedSoftware: 2.1,
+    fcf: 30.8, fcfYield: 2.04, fcfYieldSignal: 'fair',
+    totalDebt: 28.8, netDebt: -49.0, netLeverage: -0.59,
+    netLeverageSignal: 'safe',
+    lastReportDate: '2025-01-29', pitCompliant: true,
+  },
+  {
+    ticker: 'MSFT', name: 'Microsoft Corp', sector: 'Technology — Cloud/Enterprise',
+    marketCap: 2980, longTermDebt: 42.7, shortTermDebt: 3.8, minorityInterest: 0,
+    preferredStock: 0, cashEquivalents: 80.0,
+    ev: 2946.5,
+    evNote: 'EV = $2,980B + $42.7B + $3.8B − $80.0B = $2,946.5B',
+    operatingIncome: 109.4, da: 19.8, sbc: 9.8,
+    adjustedEbitda: 139.0,
+    adjustedEbitdaNote: 'MSFT capitalizes significant R&D. Adj.EBITDA adds back SBC ($9.8B) — pure GAAP shows lower margin.',
+    gaapNetIncome: 88.1, gaapEps: 11.85,
+    evEbitda: 21.2, evEbitdaPercentile: 38, evSales: 13.6,
+    forwardPE: 32.8, earningsYield: 3.05,
+    ocf: 124.0, capex: 44.5, capitalizedSoftware: 3.2,
+    fcf: 76.3, fcfYield: 2.56, fcfYieldSignal: 'fair',
+    totalDebt: 46.5, netDebt: -33.5, netLeverage: -0.24,
+    netLeverageSignal: 'safe',
+    lastReportDate: '2025-01-29', pitCompliant: true,
+  },
+  {
+    ticker: 'GOOGL', name: 'Alphabet Inc', sector: 'Technology — Advertising/Cloud',
+    marketCap: 1980, longTermDebt: 14.7, shortTermDebt: 8.7, minorityInterest: 0,
+    preferredStock: 0, cashEquivalents: 110.9,
+    ev: 1892.5,
+    evNote: 'EV = $1,980B + $14.7B + $8.7B − $110.9B = $1,892.5B',
+    operatingIncome: 84.3, da: 13.4, sbc: 21.9,
+    adjustedEbitda: 119.6,
+    adjustedEbitdaNote: 'GOOGL\'s SBC ($21.9B) is massive — GAAP P/E overstates true cost. EV/Adj.EBITDA is the correct lens.',
+    gaapNetIncome: 73.8, gaapEps: 5.80,
+    evEbitda: 15.8, evEbitdaPercentile: 22, evSales: 7.1,
+    forwardPE: 21.4, earningsYield: 4.67,
+    ocf: 96.2, capex: 52.2, capitalizedSoftware: 1.8,
+    fcf: 42.2, fcfYield: 2.13, fcfYieldSignal: 'fair',
+    totalDebt: 23.4, netDebt: -87.5, netLeverage: -0.73,
+    netLeverageSignal: 'safe',
+    lastReportDate: '2025-02-04', pitCompliant: true,
+  },
+  {
+    ticker: 'AMZN', name: 'Amazon.com Inc', sector: 'Technology — E-Commerce/Cloud',
+    marketCap: 2200, longTermDebt: 52.3, shortTermDebt: 7.8, minorityInterest: 0.9,
+    preferredStock: 0, cashEquivalents: 88.0,
+    ev: 2173.0,
+    evNote: 'EV = $2,200B + $52.3B + $7.8B + $0.9B − $88.0B = $2,173B',
+    operatingIncome: 59.9, da: 56.7, sbc: 24.1,
+    adjustedEbitda: 140.7,
+    adjustedEbitdaNote: 'AMZN D&A is $56.7B (massive fulfillment/logistics capex depreciation). SBC $24.1B added back.',
+    gaapNetIncome: 50.4, gaapEps: 4.86,
+    evEbitda: 15.4, evEbitdaPercentile: 18, evSales: 3.2,
+    forwardPE: 38.2, earningsYield: 2.62,
+    ocf: 115.8, capex: 83.0, capitalizedSoftware: 2.4,
+    fcf: 30.4, fcfYield: 1.38, fcfYieldSignal: 'low',
+    totalDebt: 60.1, netDebt: -27.9, netLeverage: -0.20,
+    netLeverageSignal: 'safe',
+    lastReportDate: '2025-02-06', pitCompliant: true,
+  },
+  {
+    ticker: 'AAPL', name: 'Apple Inc', sector: 'Technology — Consumer/Services',
+    marketCap: 3280, longTermDebt: 85.7, shortTermDebt: 9.0, minorityInterest: 0,
+    preferredStock: 0, cashEquivalents: 67.2,
+    ev: 3307.5,
+    evNote: 'EV = $3,280B + $85.7B + $9.0B − $67.2B = $3,307.5B (net cash negative — debt > cash)',
+    operatingIncome: 114.3, da: 11.4, sbc: 11.7,
+    adjustedEbitda: 137.4,
+    adjustedEbitdaNote: 'Apple modest SBC relative to earnings. R&D fully expensed per GAAP — no hidden capitalization.',
+    gaapNetIncome: 93.7, gaapEps: 6.11,
+    evEbitda: 24.1, evEbitdaPercentile: 55, evSales: 9.4,
+    forwardPE: 30.4, earningsYield: 3.29,
+    ocf: 118.3, capex: 9.4, capitalizedSoftware: 0,
+    fcf: 108.9, fcfYield: 3.32, fcfYieldSignal: 'fair',
+    totalDebt: 94.7, netDebt: 27.5, netLeverage: 0.20,
+    netLeverageSignal: 'safe',
+    lastReportDate: '2025-01-30', pitCompliant: true,
+  },
+  {
+    ticker: 'TSLA', name: 'Tesla Inc', sector: 'Consumer — EV/Energy',
+    marketCap: 820, longTermDebt: 6.4, shortTermDebt: 2.1, minorityInterest: 0,
+    preferredStock: 0, cashEquivalents: 36.6,
+    ev: 791.9,
+    evNote: 'EV = $820B + $6.4B + $2.1B − $36.6B = $791.9B',
+    operatingIncome: 7.1, da: 7.8, sbc: 2.4,
+    adjustedEbitda: 17.3,
+    adjustedEbitdaNote: '2024 margins compressed — automotive gross margin declined YoY. SBC $2.4B adds back.',
+    gaapNetIncome: 7.3, gaapEps: 2.28,
+    evEbitda: 45.8, evEbitdaPercentile: 88, evSales: 8.1,
+    forwardPE: 82.4, earningsYield: 1.21,
+    ocf: 14.9, capex: 11.0, capitalizedSoftware: 0.6,
+    fcf: 3.3, fcfYield: 0.40, fcfYieldSignal: 'negative',
+    totalDebt: 8.5, netDebt: -28.1, netLeverage: -1.62,
+    netLeverageSignal: 'safe',
+    lastReportDate: '2025-01-29', pitCompliant: true,
+  },
+  {
+    ticker: 'CRM', name: 'Salesforce Inc', sector: 'Technology — SaaS/CRM',
+    marketCap: 280, longTermDebt: 8.4, shortTermDebt: 0, minorityInterest: 0,
+    preferredStock: 0, cashEquivalents: 8.2,
+    ev: 280.2,
+    evNote: 'EV = $280B + $8.4B − $8.2B = $280.2B',
+    operatingIncome: 5.8, da: 2.1, sbc: 6.2,
+    adjustedEbitda: 14.1,
+    adjustedEbitdaNote: 'CRM SBC ($6.2B) is ~120% of GAAP operating income — classic SaaS GAAP distortion. ALWAYS use Adj.EBITDA.',
+    gaapNetIncome: 4.6, gaapEps: 4.77,
+    evEbitda: 19.9, evEbitdaPercentile: 32, evSales: 6.8,
+    forwardPE: 27.8, earningsYield: 3.60,
+    ocf: 12.8, capex: 0.6, capitalizedSoftware: 1.4,
+    fcf: 10.8, fcfYield: 3.86, fcfYieldSignal: 'fair',
+    totalDebt: 8.4, netDebt: 0.2, netLeverage: 0.01,
+    netLeverageSignal: 'safe',
+    lastReportDate: '2025-02-26', pitCompliant: true,
+  },
+];
+
+// ── Price/Volume Data ─────────────────────────────────────────────────────────
+export const priceVolumeUniverse: PriceVolumeData[] = [
+  { ticker:'NVDA', name:'NVIDIA',    adjClose: 875.4,  adjCloseNote:'前复权 Adj Close', volumeToday:420_000_000, volumeSma20:380_000_000, volumeRatio:1.11, witchingDayFlag:false, rsi14:58.4, rsiSignal:'neutral', atr14:28.4, atrPct:3.2, ma50:820.0,  ma200:690.0,  priceTo52wHigh:0.94, drawdownFrom52w:-6.2 },
+  { ticker:'META', name:'Meta',      adjClose: 594.3,  adjCloseNote:'前复权 Adj Close', volumeToday:185_000_000, volumeSma20:160_000_000, volumeRatio:1.16, witchingDayFlag:false, rsi14:62.1, rsiSignal:'neutral', atr14:15.8, atrPct:2.7, ma50:560.0,  ma200:490.0,  priceTo52wHigh:0.96, drawdownFrom52w:-3.8 },
+  { ticker:'MSFT', name:'Microsoft', adjClose: 412.8,  adjCloseNote:'前复权 Adj Close', volumeToday:92_000_000,  volumeSma20:88_000_000,  volumeRatio:1.05, witchingDayFlag:false, rsi14:54.2, rsiSignal:'neutral', atr14:8.4,  atrPct:2.0, ma50:405.0,  ma200:395.0,  priceTo52wHigh:0.97, drawdownFrom52w:-2.8 },
+  { ticker:'GOOGL', name:'Alphabet', adjClose: 176.2,  adjCloseNote:'前复权 Adj Close', volumeToday:165_000_000, volumeSma20:145_000_000, volumeRatio:1.14, witchingDayFlag:false, rsi14:56.8, rsiSignal:'neutral', atr14:4.8,  atrPct:2.7, ma50:172.0,  ma200:164.0,  priceTo52wHigh:0.95, drawdownFrom52w:-4.8 },
+  { ticker:'AMZN', name:'Amazon',    adjClose: 211.4,  adjCloseNote:'前复权 Adj Close', volumeToday:142_000_000, volumeSma20:130_000_000, volumeRatio:1.09, witchingDayFlag:false, rsi14:60.4, rsiSignal:'neutral', atr14:5.6,  atrPct:2.6, ma50:208.0,  ma200:190.0,  priceTo52wHigh:0.93, drawdownFrom52w:-6.8 },
+  { ticker:'AAPL', name:'Apple',     adjClose: 218.6,  adjCloseNote:'前复权 Adj Close', volumeToday:76_000_000,  volumeSma20:80_000_000,  volumeRatio:0.95, witchingDayFlag:false, rsi14:48.4, rsiSignal:'neutral', atr14:4.2,  atrPct:1.9, ma50:224.0,  ma200:210.0,  priceTo52wHigh:0.91, drawdownFrom52w:-8.9 },
+  { ticker:'TSLA', name:'Tesla',     adjClose: 254.8,  adjCloseNote:'前复权 Adj Close', volumeToday:580_000_000, volumeSma20:420_000_000, volumeRatio:1.38, witchingDayFlag:false, rsi14:38.2, rsiSignal:'oversold', atr14:12.8, atrPct:5.0, ma50:280.0,  ma200:240.0,  priceTo52wHigh:0.62, drawdownFrom52w:-38.0 },
+  { ticker:'CRM',  name:'Salesforce',adjClose: 296.4,  adjCloseNote:'前复权 Adj Close', volumeToday:68_000_000,  volumeSma20:58_000_000,  volumeRatio:1.17, witchingDayFlag:false, rsi14:44.8, rsiSignal:'neutral', atr14:8.2,  atrPct:2.8, ma50:302.0,  ma200:282.0,  priceTo52wHigh:0.88, drawdownFrom52w:-12.0 },
+];
+
+// ── Current Macro Snapshot (today) ───────────────────────────────────────────
+export const currentMacroSnapshot: MacroLiquiditySnapshot = {
+  date: '2026-03-03',
+  vix: 18.4, vx1: 19.8, vx3: 21.2,
+  vixTermStructure: -0.071,   // 18.4/19.8 - 1 = -0.071 → Contango (normal)
+  vixContango: true,
+  hyOas: 312,
+  hyOasSignal: 'normal',
+  usTreasury10y: 4.52,
+  usTreasury2y: 4.28,
+  yieldCurve: 24,
+  yieldCurveInverted: false,
+  pctAbove200ma: 58.4,
+  breadthSignal: 'neutral',
+  putCallRatio: 0.76,
+  putCallSignal: 'neutral',
+  panicScore: 8,
+  panicLabel: 'NORMAL',
+};
+
+// ── Current ERP Snapshot ──────────────────────────────────────────────────────
+export const currentERPSnapshot: ERPSnapshot = {
+  date: '2026-03-03',
+  sp500ForwardPE: 21.8,
+  sp500EarningsYield: 4.59,
+  usTreasury10y: 4.52,
+  erp: 0.07,
+  erpSignal: 'overvalued',
+  erpHistoricalPercentile: 8,
+  erpNote: '⚠ ERP仅0.07% — 接近历史最低水平。股票相对无风险利率几乎无溢价。历史上ERP<1%是大盘严重Overvalued的信号（2000年互联网泡沫顶部ERP为负）。除非盈利大幅上修，否则估值风险极高。',
+};
+
+// ── Macro + ERP history for charts ────────────────────────────────────────────
+export const macroHistory    = genMacroHistory();
+export const erpHistory      = genERPHistory();
+
+// ── Data Center Health / Engineering Specs ────────────────────────────────────
+export const dataCenterHealth: DataCenterHealth = {
+  lastUpdate: '2026-03-03T04:20:00Z',
+  dataSources: [
+    { name:'Bloomberg Terminal (BLPAPI)',  status:'live',    latency:'<500ms', apiCode:'BLPAPI',          updateFreq:'Real-time', compliance:'PIT-compliant, point-in-time snapshots' },
+    { name:'FRED (Federal Reserve)',       status:'delayed', latency:'1d lag', apiCode:'BAMLH0A0HYM2',   updateFreq:'Daily',     compliance:'Official Fed data, fully PIT-compliant' },
+    { name:'CBOE (VIX/P-C Ratio)',         status:'delayed', latency:'15min',  apiCode:'VIX,VXST',       updateFreq:'Intraday',  compliance:'Official exchange data' },
+    { name:'Yahoo Finance (yfinance)',     status:'delayed', latency:'15min',  apiCode:'yfinance API',    updateFreq:'Daily',     compliance:'Adj Close required — verify splits/dividends' },
+    { name:'SEC EDGAR (XBRL)',             status:'delayed', latency:'1-3d',   apiCode:'XBRL Concepts',   updateFreq:'Quarterly', compliance:'PIT lag 45-90d — map to announcement date' },
+    { name:'FactSet / Compustat',          status:'mock',    latency:'N/A',    apiCode:'Point-in-Time DB',updateFreq:'Quarterly', compliance:'Gold standard PIT archive — requires subscription' },
+  ],
+  pitArchitecture: {
+    enabled: true,
+    description: 'Point-in-Time (PIT) compliance: financial data timestamped at announcement date (NOT fiscal period end). Q4 2023 financials reported on 2024-02-15 are only available in backtests from 2024-02-15 onward.',
+    reportingLag: '45-90 calendar days after fiscal quarter end',
+    riskNote: 'Using period-end dates instead of announcement dates introduces look-ahead bias — typically inflates backtest Sharpe by 0.3-0.8.',
+  },
+  survivorshipBias: {
+    mitigated: true,
+    method: 'Single ETF universe (SPY) for price backtests. For stock selection, maintain historical index membership table including delisted/acquired/bankrupted tickers.',
+    universeSize: 500,
+    historicalTickers: 1847,  // approx S&P500 constituents 2014-2024
+  },
+  gaapAdjustments: {
+    applied: true,
+    items: [
+      'SBC (Stock-Based Compensation) added back to EBITDA — non-cash GAAP expense artificially depresses operating income in TMT sector',
+      'R&D Capitalization: for SaaS/software, capitalize and amortize over 3-5Y rather than 100% period expense per GAAP (better reflects true asset creation)',
+      'Capitalized Software excluded from FCF calculation (often hidden capex)',
+      'Operating Lease add-back to EV (post-ASC 842 standard)',
+      'Forward estimates: use NTM (Next Twelve Months) consensus, not TTM — forward EPS is what the market prices',
+    ],
+  },
+};
