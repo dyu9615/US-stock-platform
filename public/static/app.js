@@ -834,46 +834,131 @@ async function renderDataCenter(el) {
   </div>
 </div>
 
-<!-- ── DATA CENTER METRIC GUIDE ─────────────────────────────────────── -->
-<div class="mb-5 rounded-xl p-4" style="background:#f8faff;border:1px solid #dbeafe">
-  <div class="text-xs font-bold text-indigo-700 mb-2 flex items-center gap-2">
-    <i class="fas fa-graduation-cap"></i> 各指标含义说明 — Data Dictionary
-  </div>
-  <div class="grid grid-cols-2 lg:grid-cols-4 gap-2 text-[11px]">
-    <div class="rounded-lg p-2.5" style="background:#fff;border:1px solid #dbeafe">
-      <div class="font-bold text-blue-800 mb-1">VIX 波动率 / 期限结构</div>
-      <div class="text-blue-700 leading-relaxed"><b>含义：</b>CBOE标普500隐含波动率。反映市场对未来30天波动幅度的预期。<br><b>Contango：</b>VX1期货>现货 = 市场平静，远期不确定性略高，risk-on环境。<br><b>Backwardation：</b>现货>期货 = 即时崩溃恐惧，历史与市场急跌高度吻合（2020.3, 2022.2）。<br><b>正常值：</b>12-20为低波动，20-30为中等警戒，>30为高恐慌。</div>
+<!-- ── DATA CENTER METRIC GUIDE (collapsed by default, click KPI to show) -->
+<div id="dc-dict-overlay" onclick="if(event.target===this)document.getElementById('dc-dict-overlay').style.display='none'"
+  style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.35);z-index:200;align-items:center;justify-content:center">
+  <div id="dc-dict-popup" class="rounded-2xl shadow-2xl p-6 max-w-md w-full mx-4" style="background:#fff;border:1px solid #e5e7eb">
+    <div class="flex items-center justify-between mb-3">
+      <div id="dc-dict-title" class="font-bold text-gray-900 text-sm flex items-center gap-2">
+        <i class="fas fa-book-open text-gray-500"></i> 指标含义
+      </div>
+      <button onclick="document.getElementById('dc-dict-overlay').style.display='none'"
+        class="text-gray-400 hover:text-gray-700 text-lg leading-none">&times;</button>
     </div>
-    <div class="rounded-lg p-2.5" style="background:#fff;border:1px solid #dbeafe">
-      <div class="font-bold text-blue-800 mb-1">HY OAS 高收益债利差</div>
-      <div class="text-blue-700 leading-relaxed"><b>含义：</b>高收益（垃圾债）vs 国债的利率差额（basis points）。利差扩大 = 信用市场对企业违约风险重新定价，是股市下跌的领先指标（通常领先6-12周）。<br><b>数据源：</b>FRED BAMLH0A0HYM2（ICE BofA High Yield OAS）<br><b>阈值：</b>&lt;300bps正常，300-500关注，500-800预警，>800金融危机级别。</div>
-    </div>
-    <div class="rounded-lg p-2.5" style="background:#fff;border:1px solid #dbeafe">
-      <div class="font-bold text-blue-800 mb-1">收益率曲线 10Y-2Y</div>
-      <div class="text-blue-700 leading-relaxed"><b>含义：</b>10年期与2年期国债收益率之差。正常为正（长期利率>短期）。<br><b>倒挂（<0bps）：</b>历史上最可靠的衰退预警信号，平均提前12-18个月领先经济衰退，2019-2022年倒挂后成功预警2023年衰退风险。<br><b>数据源：</b>FRED DGS10 / DGS2，每日更新。</div>
-    </div>
-    <div class="rounded-lg p-2.5" style="background:#fff;border:1px solid #dbeafe">
-      <div class="font-bold text-blue-800 mb-1">综合恐慌指数</div>
-      <div class="text-blue-700 leading-relaxed"><b>含义：</b>由VIX期限结构、HY OAS、市场宽度、Put/Call比率四个子维度加权合成的0-100分恐慌分数。<br><b>0-30：</b>市场平静，risk-on，适合进取型仓位。<br><b>30-60：</b>中等压力，谨慎。<br><b>60-100：</b>极度恐慌，历史上Buy-the-Dip区域，但需等待信号收敛。</div>
-    </div>
-    <div class="rounded-lg p-2.5" style="background:#fff;border:1px solid #dbeafe">
-      <div class="font-bold text-blue-800 mb-1">市场宽度 Market Breadth</div>
-      <div class="text-blue-700 leading-relaxed"><b>含义：</b>S&P 500中价格高于200日均线的股票比例。反映市场上涨的广度和健康程度。<br><b>>60%：</b>强劲牛市，广泛参与。<br><b>30-60%：</b>正常，部分行业分化。<br><b>&lt;30%：</b>上涨仅由少数龙头驱动 = 顶部危险信号。&lt;15% = 熊市确认。<br><b>数据源：</b>StockCharts $SPXA200R。</div>
-    </div>
-    <div class="rounded-lg p-2.5" style="background:#fff;border:1px solid #dbeafe">
-      <div class="font-bold text-blue-800 mb-1">Put/Call Ratio</div>
-      <div class="text-blue-700 leading-relaxed"><b>含义：</b>CBOE期权市场看跌期权成交量 / 看涨期权成交量比值。反映投资者对下行风险的对冲需求。<br><b>&lt;0.7：</b>过度乐观贪婪，逆向信号潜在顶部。<br><b>0.7-1.0：</b>正常区间。<br><b>1.0-1.2：</b>偏向防御。<br><b>>1.2：</b>恐慌，机构大量购买下行保护。<br><b>数据源：</b>CBOE Daily Statistics。</div>
-    </div>
-    <div class="rounded-lg p-2.5" style="background:#fff;border:1px solid #dbeafe">
-      <div class="font-bold text-blue-800 mb-1">股权风险溢价 ERP</div>
-      <div class="text-blue-700 leading-relaxed"><b>含义：</b>ERP = S&P 500远期收益率（1/Fwd PE）− 10年期美债收益率。反映股票相对债券的超额回报补偿。<br><b>&lt;1%：</b>股票相对债券几乎没有超额补偿 = 估值偏贵，债券更具吸引力。<br><b>1-3%：</b>合理估值区间。<br><b>>3%：</b>股票具有明显超额吸引力。<br><b>历史均值：</b>约2.5-3.0%。</div>
-    </div>
-    <div class="rounded-lg p-2.5" style="background:#fff;border:1px solid #dbeafe">
-      <div class="font-bold text-blue-800 mb-1">EV/EBITDA 企业倍数</div>
-      <div class="text-blue-700 leading-relaxed"><b>含义：</b>企业价值（Enterprise Value）/ EBITDA倍数，反映市场对公司整体经营利润的估值溢价。剔除了资本结构差异，便于跨行业比较。<br><b>&lt;8×：</b>深度价值。<b>8-15×：</b>合理。<b>15-25×：</b>溢价但可接受（成长股）。<b>>25×：</b>估值偏高需要高成长支撑。<br><b>历史均值：</b>S&P 500约15×。</div>
+    <div id="dc-dict-body" class="text-xs text-gray-700 leading-relaxed"></div>
+    <div class="mt-4 pt-3 border-t border-gray-100 text-[10px] text-gray-400 flex items-center gap-1">
+      <i class="fas fa-info-circle"></i> 点击任意指标数值可查看含义说明
     </div>
   </div>
-</div>
+</div>`;
+
+// ── showMetricDict: called by onclick on each KPI value ──────────────────────
+window.showMetricDict = function(key) {
+  const defs = {
+    vix: {
+      title: '波动率指数 VIX (CBOE Volatility Index)',
+      body: `<p><b>什么是VIX？</b><br>衡量市场对未来30天S&P 500价格波动的预期，由CBOE期权隐含波动率计算。</p>
+<p class="mt-2"><b>解读门槛：</b></p>
+<ul class="mt-1 space-y-1 list-disc pl-4">
+  <li><b class="text-emerald-600">12–20</b>：低波动，风险偏好良好</li>
+  <li><b class="text-amber-600">20–30</b>：中等波动，需谨慎</li>
+  <li><b class="text-red-600">&gt;30</b>：高恐慌，历史买入机会</li>
+  <li><b class="text-red-700">&gt;40</b>：极端恐慌（GFC 2008：80；COVID 2020：66）</li>
+</ul>
+<p class="mt-2"><b>期限结构：</b><br>
+期货溢价（VX1 &gt; 现货）= Contango，市场平静；现货 &gt; 期货 = Backwardation，市场恐慌。</p>`
+    },
+    hyoas: {
+      title: '高收益信用利差 HY OAS (ICE BofA)',
+      body: `<p><b>什么是HY OAS？</b><br>高收益（垃圾）债与国债的利差，以基点（bps）衡量。反映信用市场的压力程度。</p>
+<p class="mt-2"><b>解读门槛：</b></p>
+<ul class="mt-1 space-y-1 list-disc pl-4">
+  <li><b class="text-emerald-600">&lt;300 bps</b>：流动性宽裕，正常偏乐观</li>
+  <li><b class="text-amber-600">300–400 bps</b>：历史平均区间（约350 bps）</li>
+  <li><b class="text-amber-600">400–800 bps</b>：流动性趋紧，开始警惕</li>
+  <li><b class="text-red-600">&gt;800 bps</b>：信用危机（2009 GFC高点：1900 bps；2020 COVID：1100 bps）</li>
+</ul>
+<p class="mt-2"><b>前瞻性：</b>信用利差扩张通常领先股市下跌6–12周。数据来源：FRED BAMLH0A0HYM2。</p>`
+    },
+    yieldcurve: {
+      title: '收益率曲线 Yield Curve (10Y–2Y)',
+      body: `<p><b>什么是收益率曲线？</b><br>10年期与2年期美国国债收益率之差（bps）。衡量市场对长期增长的预期与短期资金成本。</p>
+<p class="mt-2"><b>解读：</b></p>
+<ul class="mt-1 space-y-1 list-disc pl-4">
+  <li><b class="text-emerald-600">正值（正常）</b>：经济扩张预期，长端高于短端</li>
+  <li><b class="text-amber-600">0附近</b>：经济放缓信号，需关注</li>
+  <li><b class="text-red-600">负值（倒挂）</b>：历史上最可靠的衰退预警，通常领先衰退12–18个月</li>
+</ul>
+<p class="mt-2">数据来源：FRED DGS10 / DGS2</p>`
+    },
+    panic: {
+      title: '综合恐慌指数 Composite Panic Score',
+      body: `<p><b>什么是综合恐慌指数？</b><br>0–100的加权综合评分，整合VIX期限结构、HY OAS信用利差、市场宽度和Put/Call比率四个维度。</p>
+<p class="mt-2"><b>解读门槛：</b></p>
+<ul class="mt-1 space-y-1 list-disc pl-4">
+  <li><b class="text-emerald-600">0–30</b>：市场平静，正常仓位</li>
+  <li><b class="text-amber-600">30–60</b>：中度压力，适当降低β敞口</li>
+  <li><b class="text-red-600">60–100</b>：高度恐慌，历史逆向买入区间</li>
+</ul>
+<p class="mt-2"><b>策略含义：</b>恐慌指数 &gt;70 时，分批布局错杀高质量资产的历史胜率较高（Buy-the-Dip策略核心触发条件）。</p>`
+    },
+    breadth: {
+      title: '市场宽度 Market Breadth (%Above 200DMA)',
+      body: `<p><b>什么是市场宽度？</b><br>S&P 500成分股中，价格高于200日均线的比例（%）。衡量牛市的广度与可持续性。</p>
+<p class="mt-2"><b>解读门槛：</b></p>
+<ul class="mt-1 space-y-1 list-disc pl-4">
+  <li><b class="text-emerald-600">&gt;60%</b>：强势牛市，宽基上涨</li>
+  <li><b class="text-amber-600">30–60%</b>：正常区间，部分板块领涨</li>
+  <li><b class="text-amber-600">&lt;30%</b>：市场偏窄，少数股票领涨（顶部风险）</li>
+  <li><b class="text-red-600">&lt;15%</b>：极端熊市，恐慌买入区间</li>
+</ul>
+<p class="mt-2">数据来源：StockCharts $SPXA200R（每日更新）</p>`
+    },
+    putcall: {
+      title: '期权看跌/看涨比率 Put/Call Ratio',
+      body: `<p><b>什么是Put/Call Ratio？</b><br>CBOE期权市场中看跌期权（保护性买入/空头）与看涨期权（多头押注）的成交量之比。经典逆向情绪指标。</p>
+<p class="mt-2"><b>解读门槛：</b></p>
+<ul class="mt-1 space-y-1 list-disc pl-4">
+  <li><b class="text-red-600">&lt;0.7</b>：极度乐观（贪婪），可能接近短期顶部</li>
+  <li><b class="text-emerald-600">0.7–1.0</b>：中性，正常区间</li>
+  <li><b class="text-amber-600">1.0–1.2</b>：防御性增加，市场谨慎</li>
+  <li><b class="text-red-600">&gt;1.2</b>：恐慌，逆向看多信号</li>
+  <li><b class="text-red-700">&gt;1.5</b>：极度恐慌，历史强力逆向买入信号</li>
+</ul>
+<p class="mt-2">数据来源：CBOE Daily Statistics</p>`
+    },
+    erp: {
+      title: '股权风险溢价 ERP (Equity Risk Premium)',
+      body: `<p><b>什么是ERP？</b><br>S&P 500远期盈利收益率（Forward Earnings Yield = 1 / Forward PE）减去10年期国债收益率。衡量股市相对债市的超额回报补偿。</p>
+<p class="mt-2"><b>解读门槛：</b></p>
+<ul class="mt-1 space-y-1 list-disc pl-4">
+  <li><b class="text-red-600">&lt;1%</b>：估值昂贵，股市对无风险利率的超额补偿不足</li>
+  <li><b class="text-amber-600">1–2.5%</b>：偏贵至公允区间</li>
+  <li><b class="text-emerald-600">2.5–4%</b>：合理，历史平均约2.5–3%</li>
+  <li><b class="text-emerald-600">&gt;4%</b>：股市相对债市有吸引力</li>
+</ul>
+<p class="mt-2"><b>当前驱动因素：</b>高利率环境下ERP压缩，利率下降时ERP提升利好股市。</p>`
+    },
+    evebitda: {
+      title: '企业价值倍数 EV/EBITDA',
+      body: `<p><b>什么是EV/EBITDA？</b><br>企业价值（股权市值 + 净负债）除以息税折旧摊销前利润。剔除资本结构差异，是跨行业估值比较的标准工具。</p>
+<p class="mt-2"><b>解读门槛：</b></p>
+<ul class="mt-1 space-y-1 list-disc pl-4">
+  <li><b class="text-emerald-600">&lt;8×</b>：深度价值，可能存在特殊情况</li>
+  <li><b class="text-emerald-600">8–15×</b>：公允估值区间（S&P 500历史平均 ~15×）</li>
+  <li><b class="text-amber-600">15–25×</b>：溢价但可接受（高增长板块）</li>
+  <li><b class="text-red-600">&gt;25×</b>：估值偏贵，安全边际薄</li>
+</ul>
+<p class="mt-2"><b>注：</b>此处使用调整后EBITDA（加回SBC股权激励），更接近实际经营现金流。数据来源：FactSet / Yahoo Finance。</p>`
+    }
+  };
+  const def = defs[key] || { title:'指标说明', body:'<p class="text-gray-500">该指标说明待补充。</p>' };
+  document.getElementById('dc-dict-title').innerHTML = `<i class="fas fa-book-open text-gray-500"></i> ${def.title}`;
+  document.getElementById('dc-dict-body').innerHTML = def.body;
+  const ov = document.getElementById('dc-dict-overlay');
+  ov.style.display = 'flex';
+};
+`
 
 <!-- ════════════════════════════════════════════════════════════════════ -->
 <!--  KPI STRIP  (8 always-visible top-level metrics)                    -->
@@ -887,7 +972,7 @@ async function renderDataCenter(el) {
       <span class="text-[9px] bg-${m.vixContango?'emerald':'red'}-500/20 text-${m.vixContango?'emerald':'red'}-300 px-1.5 py-0.5 rounded-full">${m.vixContango?'Contango':'Backwardation'}</span>
     </div>
     <div class="flex items-end gap-3">
-      <div class="text-2xl font-bold text-gray-900">${m.vix}</div>
+      <div class="text-2xl font-bold text-gray-900 cursor-pointer hover:text-gray-600" onclick="showMetricDict('vix')" title="点击查看指标含义">${m.vix}</div>
       <div class="text-xs text-gray-500 mb-0.5 leading-tight">VX1: <span class="text-gray-400">${m.vx1}</span><br>VX3: <span class="text-gray-400">${m.vx3}</span></div>
     </div>
     <div class="mt-1 text-[10px] ${m.vixContango?'text-emerald-400':'text-red-400'}">${vixSlopeStr}</div>
@@ -899,7 +984,7 @@ async function renderDataCenter(el) {
       <span class="text-[10px] text-gray-500 uppercase tracking-wider">信用风险 / HY OAS</span>
       <span class="text-[9px] px-1.5 py-0.5 rounded-full" style="background:${hySignColor}22;color:${hySignColor}">${(m.hyOasSignal||'').toUpperCase()||'—'}</span>
     </div>
-    <div class="text-2xl font-bold" style="color:${hySignColor}">${m.hyOas}<span class="text-sm ml-1 font-normal text-gray-500">bps</span></div>
+    <div class="text-2xl font-bold cursor-pointer hover:opacity-70" style="color:${hySignColor}" onclick="showMetricDict('hyoas')" title="点击查看指标含义">${m.hyOas}<span class="text-sm ml-1 font-normal text-gray-500">bps</span></div>
     <div class="mt-1 text-[10px] text-gray-500">FRED: BAMLH0A0HYM2 · &gt;400 Caution · &gt;800 Distress</div>
   </div>
 
@@ -909,7 +994,7 @@ async function renderDataCenter(el) {
       <span class="text-[10px] text-gray-500 uppercase tracking-wider">利率环境 / Yield Curve</span>
       <span class="text-[9px] px-1.5 py-0.5 rounded-full" style="background:${ycColor}22;color:${ycColor}">${m.yieldCurveInverted?'INVERTED':'Normal'}</span>
     </div>
-    <div class="text-2xl font-bold" style="color:${ycColor}">${m.yieldCurve>0?'+':''}${m.yieldCurve}<span class="text-sm ml-1 font-normal text-gray-500">bps</span></div>
+    <div class="text-2xl font-bold cursor-pointer hover:opacity-70" style="color:${ycColor}" onclick="showMetricDict('yieldcurve')" title="点击查看指标含义">${m.yieldCurve>0?'+':''}${m.yieldCurve}<span class="text-sm ml-1 font-normal text-gray-500">bps</span></div>
     <div class="mt-1 text-[10px] text-gray-500">10Y ${m.usTreasury10y}% − 2Y ${m.usTreasury2y}% · FRED: DGS10/DGS2</div>
   </div>
 
@@ -919,7 +1004,7 @@ async function renderDataCenter(el) {
       <span class="text-[10px] text-gray-500 uppercase tracking-wider">恐慌分数 / Panic Score</span>
       <span class="text-[9px] bg-${m.panicScore<30?'emerald':m.panicScore<60?'amber':'red'}-500/20 text-${m.panicScore<30?'emerald':m.panicScore<60?'amber':'red'}-300 px-1.5 py-0.5 rounded-full">${m.panicLabel||'—'}</span>
     </div>
-    <div class="text-2xl font-bold ${m.panicScore<30?'text-emerald-400':m.panicScore<60?'text-amber-400':'text-red-400'}">${m.panicScore}<span class="text-sm ml-1 font-normal text-gray-500">/100</span></div>
+    <div class="text-2xl font-bold cursor-pointer hover:opacity-70 ${m.panicScore<30?'text-emerald-400':m.panicScore<60?'text-amber-400':'text-red-400'}" onclick="showMetricDict('panic')" title="点击查看指标含义">${m.panicScore}<span class="text-sm ml-1 font-normal text-gray-500">/100</span></div>
     <div class="w-full h-1.5 rounded-full mt-2 overflow-hidden" style="background:#e5e7eb">
       <div class="h-full rounded-full transition-all ${m.panicScore<30?'bg-emerald-500':m.panicScore<60?'bg-amber-500':'bg-red-500'}" style="width:${m.panicScore}%"></div>
     </div>
@@ -931,7 +1016,7 @@ async function renderDataCenter(el) {
       <span class="text-[10px] text-gray-500 uppercase tracking-wider">市场宽度 / Breadth</span>
       <span class="text-[9px] px-1.5 py-0.5 rounded-full" style="background:${breadthColor}22;color:${breadthColor}">${(m.breadthSignal||'').toUpperCase()||'—'}</span>
     </div>
-    <div class="text-2xl font-bold" style="color:${breadthColor}">${(m.pctAbove200ma||0).toFixed(1)}<span class="text-sm ml-1 font-normal text-gray-500">%</span></div>
+    <div class="text-2xl font-bold cursor-pointer hover:opacity-70" style="color:${breadthColor}" onclick="showMetricDict('breadth')" title="点击查看指标含义">${(m.pctAbove200ma||0).toFixed(1)}<span class="text-sm ml-1 font-normal text-gray-500">%</span></div>
     <div class="mt-1 text-[10px] text-gray-500">S5TH200X · % SPX above 200DMA · &lt;15% = Panic</div>
   </div>
 
@@ -941,7 +1026,7 @@ async function renderDataCenter(el) {
       <span class="text-[10px] text-gray-500 uppercase tracking-wider">衍生品情绪 / P/C Ratio</span>
       <span class="text-[9px] px-1.5 py-0.5 rounded-full" style="background:${pcColor}22;color:${pcColor}">${(m.putCallSignal||'').toUpperCase()||'—'}</span>
     </div>
-    <div class="text-2xl font-bold" style="color:${pcColor}">${(m.putCallRatio||0).toFixed(2)}</div>
+    <div class="text-2xl font-bold cursor-pointer hover:opacity-70" style="color:${pcColor}" onclick="showMetricDict('putcall')" title="点击查看指标含义">${(m.putCallRatio||0).toFixed(2)}</div>
     <div class="mt-1 text-[10px] text-gray-500">CBOE · &gt;1.2 Fear · &lt;0.7 Greed · &gt;1.5 Panic</div>
   </div>
 
@@ -951,7 +1036,7 @@ async function renderDataCenter(el) {
       <span class="text-[10px] text-gray-500 uppercase tracking-wider">股权风险溢价 / ERP</span>
       <span class="text-[9px] px-1.5 py-0.5 rounded-full" style="background:${erpColor}22;color:${erpColor}">${(e.erpSignal||'').toUpperCase()||'—'}</span>
     </div>
-    <div class="text-2xl font-bold" style="color:${erpColor}">${(e.erp||0).toFixed(2)}<span class="text-sm ml-1 font-normal text-gray-500">%</span></div>
+    <div class="text-2xl font-bold cursor-pointer hover:opacity-70" style="color:${erpColor}" onclick="showMetricDict('erp')" title="点击查看指标含义">${(e.erp||0).toFixed(2)}<span class="text-sm ml-1 font-normal text-gray-500">%</span></div>
     <div class="mt-1 text-[10px] text-gray-500">Earnings Yield ${(e.sp500EarningsYield||0).toFixed(2)}% − 10Y ${e.usTreasury10y}%</div>
   </div>
 
@@ -959,9 +1044,9 @@ async function renderDataCenter(el) {
   <div class="bg-white border border-gray-200 rounded-xl p-3 shadow-sm">
     <div class="flex items-center justify-between mb-1">
       <span class="text-[10px] text-gray-500 uppercase tracking-wider">基本面估值 / EV/EBITDA</span>
-      <span class="text-[9px] bg-blue-500/20 text-blue-700 px-1.5 py-0.5 rounded-full">${stocks.length} stocks</span>
+      <span class="text-[9px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded-full">${stocks.length} stocks</span>
     </div>
-    <div class="text-2xl font-bold ${parseFloat(avgEv)>20?'text-red-400':'text-blue-400'}">${avgEv}<span class="text-sm ml-1 font-normal text-gray-500">×</span></div>
+    <div class="text-2xl font-bold cursor-pointer hover:opacity-70 ${parseFloat(avgEv)>20?'text-red-400':'text-amber-500'}" onclick="showMetricDict('evebitda')" title="点击查看指标含义">${avgEv}<span class="text-sm ml-1 font-normal text-gray-500">×</span></div>
     <div class="mt-1 text-[10px] text-gray-500">Adj.EBITDA (SBC added back) · 10Y avg ~15×</div>
   </div>
 
@@ -1040,7 +1125,7 @@ async function renderDataCenter(el) {
     <div class="text-[10px] text-gray-500 mb-2">PIT · Survivorship · GAAP · Source Status</div>
     <div class="flex gap-1 flex-wrap">
       <span class="text-[9px] bg-emerald-500/20 text-emerald-700 px-1.5 py-0.5 rounded-full">✓ PIT</span>
-      <span class="text-[9px] bg-blue-500/20 text-blue-700 px-1.5 py-0.5 rounded-full">${srcs.length} Sources</span>
+      <span class="text-[9px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded-full">${srcs.length} Sources</span>
     </div>
   </div>
 
@@ -1049,14 +1134,14 @@ async function renderDataCenter(el) {
 <!-- ════════════════════════════════════════════════════════════════════ -->
 <!--  SUB-MODULE 1: MACRO LIQUIDITY & SENTIMENT                          -->
 <!-- ════════════════════════════════════════════════════════════════════ -->
-<div id="dc-sub-macro" style="display:none" class="mb-3 bg-white border border-[#1e2d4a] rounded-xl overflow-hidden">
-  <div class="flex items-center justify-between px-4 py-3 border-b border-[#1e2d4a]">
+<div id="dc-sub-macro" style="display:none" class="mb-3 bg-white border border-gray-200 rounded-xl overflow-hidden">
+  <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200">
     <span class="text-sm font-bold text-white flex items-center gap-2">
       <i class="fas fa-fire text-red-400"></i>
       宏观流动性与情绪数据 — Macro Liquidity & Sentiment
       <span class="text-[10px] text-gray-500 font-normal">每日更新 · Daily Update</span>
     </span>
-    <button onclick="window._dcToggle('dc-sub-macro')" class="text-gray-400 hover:text-gray-400 text-xs px-2 py-0.5 rounded border border-[#1e2d4a]">✕ close</button>
+    <button onclick="window._dcToggle('dc-sub-macro')" class="text-gray-500 hover:text-gray-700 text-xs px-2 py-0.5 rounded border border-gray-300">✕ close</button>
   </div>
   <div class="p-4">
     <table class="w-full text-xs">
@@ -1247,14 +1332,14 @@ async function renderDataCenter(el) {
 <!-- ════════════════════════════════════════════════════════════════════ -->
 <!--  SUB-MODULE 2: PRICE & VOLUME DATA                                  -->
 <!-- ════════════════════════════════════════════════════════════════════ -->
-<div id="dc-sub-pricevol" style="display:none" class="mb-3 bg-white border border-[#1e2d4a] rounded-xl overflow-hidden">
-  <div class="flex items-center justify-between px-4 py-3 border-b border-[#1e2d4a]">
+<div id="dc-sub-pricevol" style="display:none" class="mb-3 bg-white border border-gray-200 rounded-xl overflow-hidden">
+  <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200">
     <span class="text-sm font-bold text-white flex items-center gap-2">
       <i class="fas fa-chart-area text-cyan-400"></i>
       量价与交易数据 — Price & Volume (Trigger Layer)
       <span class="text-[10px] text-gray-500 font-normal">每日更新 · Daily</span>
     </span>
-    <button onclick="window._dcToggle('dc-sub-pricevol')" class="text-gray-400 hover:text-gray-400 text-xs px-2 py-0.5 rounded border border-[#1e2d4a]">✕ close</button>
+    <button onclick="window._dcToggle('dc-sub-pricevol')" class="text-gray-500 hover:text-gray-700 text-xs px-2 py-0.5 rounded border border-gray-300">✕ close</button>
   </div>
   <div class="p-4">
 
@@ -1317,14 +1402,14 @@ async function renderDataCenter(el) {
 <!-- ════════════════════════════════════════════════════════════════════ -->
 <!--  SUB-MODULE 3: FUNDAMENTAL VALUATION                                -->
 <!-- ════════════════════════════════════════════════════════════════════ -->
-<div id="dc-sub-fundamental" style="display:none" class="mb-3 bg-white border border-[#1e2d4a] rounded-xl overflow-hidden">
-  <div class="flex items-center justify-between px-4 py-3 border-b border-[#1e2d4a]">
+<div id="dc-sub-fundamental" style="display:none" class="mb-3 bg-white border border-gray-200 rounded-xl overflow-hidden">
+  <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200">
     <span class="text-sm font-bold text-white flex items-center gap-2">
       <i class="fas fa-table text-emerald-400"></i>
       基本面与绝对估值 — Fundamental Valuation
       <span class="text-[10px] text-gray-500 font-normal">季度/TTM · Quarterly</span>
     </span>
-    <button onclick="window._dcToggle('dc-sub-fundamental')" class="text-gray-400 hover:text-gray-400 text-xs px-2 py-0.5 rounded border border-[#1e2d4a]">✕ close</button>
+    <button onclick="window._dcToggle('dc-sub-fundamental')" class="text-gray-500 hover:text-gray-700 text-xs px-2 py-0.5 rounded border border-gray-300">✕ close</button>
   </div>
   <div class="p-4">
 
@@ -1445,13 +1530,13 @@ async function renderDataCenter(el) {
 <!-- ════════════════════════════════════════════════════════════════════ -->
 <!--  SUB-MODULE 4: DATA PIPELINE & ENGINEERING SPECS                    -->
 <!-- ════════════════════════════════════════════════════════════════════ -->
-<div id="dc-sub-pipeline" style="display:none" class="mb-3 bg-white border border-[#1e2d4a] rounded-xl overflow-hidden">
-  <div class="flex items-center justify-between px-4 py-3 border-b border-[#1e2d4a]">
+<div id="dc-sub-pipeline" style="display:none" class="mb-3 bg-white border border-gray-200 rounded-xl overflow-hidden">
+  <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200">
     <span class="text-sm font-bold text-white flex items-center gap-2">
       <i class="fas fa-shield-alt text-purple-400"></i>
       数据工程规范 — Data Pipeline & Bias Safeguards
     </span>
-    <button onclick="window._dcToggle('dc-sub-pipeline')" class="text-gray-400 hover:text-gray-400 text-xs px-2 py-0.5 rounded border border-[#1e2d4a]">✕ close</button>
+    <button onclick="window._dcToggle('dc-sub-pipeline')" class="text-gray-500 hover:text-gray-700 text-xs px-2 py-0.5 rounded border border-gray-300">✕ close</button>
   </div>
   <div class="p-4">
     <div class="grid grid-cols-3 gap-4 mb-4">
@@ -1530,16 +1615,16 @@ async function renderDataCenter(el) {
     <div class="text-xs font-bold text-gray-500 uppercase mb-2">数据源状态 / Source Status</div>
     <div class="space-y-1.5">
     ${srcs.map(s=>`
-      <div class="flex items-center gap-3 bg-gray-50 border border-[#1e2d4a] rounded-lg p-2.5">
+      <div class="flex items-center gap-3 bg-gray-50 border border-gray-200 rounded-lg p-2.5">
         <div class="w-2 h-2 rounded-full flex-shrink-0 ${s.status==='live'||s.status==='connected'?'bg-emerald-400 animate-pulse':s.status==='delayed'?'bg-amber-400':'bg-gray-600'}"></div>
         <div class="flex-1 min-w-0">
           <div class="flex items-center gap-2">
             <span class="text-xs font-semibold text-gray-900">${s.name}</span>
-            <span class="text-[9px] px-1.5 py-0.5 rounded-full ${s.status==='live'?'bg-emerald-800 text-emerald-200':s.status==='delayed'?'bg-amber-800 text-amber-200':'bg-gray-200 text-gray-500'}">${s.status}</span>
+            <span class="text-[9px] px-1.5 py-0.5 rounded-full ${s.status==='live'?'bg-emerald-100 text-emerald-700':s.status==='delayed'?'bg-amber-100 text-amber-700':'bg-gray-100 text-gray-500'}">${s.status}</span>
             ${s.latency?`<span class="text-[9px] text-gray-500 font-mono">latency: ${s.latency}</span>`:''}
           </div>
           <div class="flex gap-4 mt-0.5">
-            ${s.apiCode?`<span class="text-[10px] text-cyan-400 font-mono">${s.apiCode}</span>`:''}
+            ${s.apiCode?`<span class="text-[10px] text-gray-600 font-mono">${s.apiCode}</span>`:''}
             ${s.updateFreq?`<span class="text-[10px] text-gray-500">${s.updateFreq}</span>`:''}
             ${s.compliance?`<span class="text-[10px] text-gray-400 truncate">${s.compliance}</span>`:''}
           </div>
@@ -1605,7 +1690,9 @@ async function renderScreener(el) {
     const tbody = document.getElementById('screenerTbody');
     if (!tbody) return;
     document.getElementById('screenerCount').textContent = stocks.length;
-    tbody.innerHTML = stocks.map(s=>`<tr onclick="showStockDetail('${s.ticker}')" class="cursor-pointer hover:bg-blue-50 transition-colors">
+    const c2 = document.getElementById('screenerCount2');
+    if (c2) c2.textContent = stocks.length;
+    tbody.innerHTML = stocks.map(s=>`<tr onclick="showStockDetail('${s.ticker}')" class="cursor-pointer hover:bg-gray-50 transition-colors">
       <td class="px-3 py-2.5">
         <div class="font-bold text-gray-900 text-sm">${s.ticker}</div>
         <div class="text-[10px] text-gray-500">${s.name.slice(0,18)}</div>
@@ -1637,6 +1724,30 @@ async function renderScreener(el) {
   }
 
   el.innerHTML = `
+  <!-- FactSet Cross-Validation Banner -->
+  <div class="bg-emerald-50 border border-emerald-200 rounded-lg p-3 mb-4 flex items-center gap-3">
+    <div class="w-7 h-7 bg-emerald-100 rounded-lg flex items-center justify-center flex-shrink-0">
+      <i class="fas fa-check-double text-emerald-600 text-xs"></i>
+    </div>
+    <div class="flex-1">
+      <div class="text-xs font-semibold text-gray-900">FactSet + Yahoo Finance 双源交叉验证</div>
+      <div class="text-[10px] text-gray-600 mt-0.5">
+        基本面数据以 FactSet NTM 共识预期为主，Yahoo Finance 历史数据为辅。当两者差异 &gt;5% 时，行内显示 <span class="text-amber-600 font-semibold">⚠️ 数据偏差</span> 警告。分析师评级、EPS 预测、收入增长率均来自 FactSet 共识数据库。
+      </div>
+    </div>
+    <div class="flex gap-3 text-[10px] text-right flex-shrink-0">
+      <div class="text-center">
+        <div class="font-bold text-gray-900">${allStocks.length}</div>
+        <div class="text-gray-500">宇宙</div>
+      </div>
+      <div class="w-px bg-gray-200"></div>
+      <div class="text-center">
+        <div class="font-bold text-emerald-700" id="screenerCount">—</div>
+        <div class="text-gray-500">筛选后</div>
+      </div>
+    </div>
+  </div>
+
   <!-- Five Factor Weight Cards -->
   <div class="grid grid-cols-5 gap-3 mb-5">
     ${Object.entries(fw).map(([k,v])=>`
@@ -1654,7 +1765,7 @@ async function renderScreener(el) {
       <span class="font-bold text-gray-800">自定义筛选条件 <span class="text-xs font-normal text-gray-500 ml-1">User-Defined Filters</span></span>
       <button id="screenerApplyBtn" onclick="window._screenerApply()" 
         class="ml-auto px-4 py-1.5 rounded-lg text-sm font-semibold transition"
-        style="background:#2563eb;color:#fff;border:none">
+        style="background:#4f46e5;color:#fff;border:none">
         <i class="fas fa-search mr-1"></i>筛选
       </button>
       <button onclick="window._screenerReset()" 
@@ -1724,7 +1835,7 @@ async function renderScreener(el) {
   <!-- Result header -->
   <div class="flex items-center gap-3 mb-3">
     <div class="text-sm text-gray-600">
-      筛选结果：<span id="screenerCount" class="text-lg font-bold text-indigo-600">—</span> 只股票
+      筛选结果：<span id="screenerCount2" class="text-lg font-bold text-indigo-600">—</span> 只股票
     </div>
     <div class="ml-auto flex flex-wrap gap-2 text-[10px]">
       <span class="px-2 py-0.5 rounded-full" style="background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe">市值 ≥ $<span id="sf-badge-mcap">${sf.marketCapMin}</span>B</span>
@@ -1823,7 +1934,7 @@ window.showStockDetail = function(ticker) {
         <span class="text-2xl font-bold text-gray-900">${s.compositeScore}</span>
         <div class="score-bar flex-1"><div class="score-bar-fill ${scoreColor(s.compositeScore)}" style="width:${s.compositeScore}%"></div></div>
         <span class="text-gray-500">数据源:</span>
-        <span class="text-cyan-700">${s.dataSource}</span>
+        <span class="text-indigo-700 font-semibold">${s.dataSource}</span>
         ${s.divergenceFlag?'<span class="text-amber-600">⚠️ 数据偏差>5%</span>':''}
       </div>`
     document.getElementById('stockModal').classList.remove('hidden')
@@ -1855,7 +1966,7 @@ async function renderStrategies(el) {
       <div class="card p-4 cursor-pointer hover:border-cyan-500/40 transition" onclick="toggleStratDetail('${s.id}')">
         <div class="flex items-start justify-between mb-3">
           <div>
-            <div class="font-semibold text-white text-sm">${s.name}</div>
+            <div class="font-semibold text-gray-900 text-sm">${s.name}</div>
             <div class="text-[11px] text-gray-500 mt-0.5">${s.typeLabel} · ${s.startDate}</div>
           </div>
           <span class="badge badge-${s.status}">${s.status}</span>
@@ -2540,11 +2651,11 @@ async function renderResearch(el) {
   const papers = data.papers
 
   el.innerHTML = `
-  <div class="bbg-alert mb-5 flex items-start gap-3">
+  <div class="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-5 flex items-start gap-3">
     <i class="fas fa-book-open text-yellow-400 mt-0.5"></i>
     <div>
       <div class="font-semibold mb-1">因子投资研究论文库</div>
-      <div class="text-xs text-gray-400">整合内部研究报告、脚本文档和工作流，通过AI提炼可操作的交易策略。核心论文：因子投资的方法概述和效果检验（规划研究部 李芮）。</div>
+      <div class="text-xs text-gray-600">整合内部研究报告、脚本文档和工作流，通过AI提炼可操作的交易策略。核心论文：因子投资的方法概述和效果检验（规划研究部 李芮）。</div>
     </div>
   </div>
   <div class="space-y-4">
@@ -2554,29 +2665,29 @@ async function renderResearch(el) {
         <div class="flex-1">
           <div class="flex items-center gap-3 mb-1">
             <h3 class="font-bold text-gray-900">${p.title}</h3>
-            <span class="text-xs text-gray-500 border border-[#1e2d4a] px-2 py-0.5 rounded">${p.source}</span>
+            <span class="text-xs text-gray-500 border border-gray-300 px-2 py-0.5 rounded">${p.source}</span>
             <span class="text-xs text-gray-400">${p.year}</span>
           </div>
-          <div class="text-xs text-cyan-400">${p.authors}</div>
-          <p class="text-xs text-gray-500 mt-2 max-w-3xl">${p.abstract}</p>
+          <div class="text-xs text-gray-600 font-medium">${p.authors}</div>
+          <p class="text-xs text-gray-700 mt-2 max-w-3xl leading-relaxed">${p.abstract}</p>
         </div>
       </div>
 
       <div class="grid grid-cols-2 gap-4 mb-3">
         <div>
-          <div class="text-[10px] text-gray-500 uppercase mb-2">核心发现</div>
+          <div class="text-[10px] text-gray-800 font-bold uppercase mb-2 tracking-wide">核心发现</div>
           <ul class="space-y-1">
-            ${p.keyFindings.map(f=>`<li class="text-xs text-gray-400 flex items-start gap-2"><span class="text-cyan-400 mt-0.5">▪</span>${f}</li>`).join('')}
+            ${p.keyFindings.map(f=>`<li class="text-xs text-gray-700 flex items-start gap-2"><span class="text-indigo-400 mt-0.5">▪</span>${f}</li>`).join('')}
           </ul>
         </div>
         <div>
-          <div class="text-[10px] text-gray-500 uppercase mb-2">提炼因子</div>
+          <div class="text-[10px] text-gray-800 font-bold uppercase mb-2 tracking-wide">提炼因子</div>
           <div class="flex flex-wrap gap-2">
-            ${p.extractedFactors.map(f=>`<span class="bg-blue-900/30 border border-blue-800/40 text-blue-300 text-[11px] px-2 py-1 rounded">${f}</span>`).join('')}
+            ${p.extractedFactors.map(f=>`<span class="bg-indigo-50 border border-indigo-200 text-indigo-700 font-semibold text-[11px] px-2 py-1 rounded">${f}</span>`).join('')}
           </div>
-          <div class="text-[10px] text-gray-500 uppercase mb-2 mt-3">标签</div>
+          <div class="text-[10px] text-gray-800 font-bold uppercase mb-2 mt-3 tracking-wide">标签</div>
           <div class="flex flex-wrap gap-1.5">
-            ${p.tags.map(t=>`<span class="bg-blue-50 text-gray-500 text-[10px] px-2 py-0.5 rounded-full">#${t}</span>`).join('')}
+            ${p.tags.map(t=>`<span class="bg-gray-100 text-gray-600 text-[10px] px-2 py-0.5 rounded-full">#${t}</span>`).join('')}
           </div>
         </div>
       </div>
@@ -3187,8 +3298,8 @@ async function renderBacktest(el) {
   const cmpStrats = compare.strategies
   const bench    = compare.benchmark
 
-  const tabIds = ['nav','compare','dips','ml','tradelog']
-  const tabLabels = ['📈 NAV Curves','⚖️ Strategy Compare','🎯 Dip Events','🤖 ML Classifier','📋 Trade Log']
+  const tabIds = ['nav','compare','dips','ml','tradelog','portfolio']
+  const tabLabels = ['📈 NAV Curves','⚖️ Strategy Compare','🎯 Dip Events','🤖 ML Classifier','📋 Trade Log','💼 My Portfolio']
 
   el.innerHTML = `
   <!-- HEADER + BIAS WARNINGS -->
@@ -3203,7 +3314,7 @@ async function renderBacktest(el) {
         <div class="w-5 h-5 rounded-full bg-amber-500/20 flex items-center justify-center cursor-help">
           <i class="fas fa-exclamation text-amber-400 text-[9px]"></i>
         </div>
-        <div class="hidden group-hover:block absolute right-0 top-6 bg-blue-50 border border-amber-500/30 text-[10px] text-amber-300 p-2 rounded w-56 z-50">${w}</div>
+        <div class="hidden group-hover:block absolute right-0 top-6 bg-white border border-amber-400 text-[10px] text-amber-700 p-2 rounded w-56 z-50 shadow-md">${w}</div>
       </div>`).join('')}
     </div>
   </div>
@@ -3232,7 +3343,7 @@ async function renderBacktest(el) {
   </div>
 
   <!-- TABS -->
-  <div class="flex gap-1 mb-4 border-b border-[#1e2d4a] pb-0">
+  <div class="flex gap-1 mb-4 border-b border-gray-200 pb-0">
     ${tabIds.map((id,i)=>`<button id="bt-tab-${id}" onclick="btTab('${id}')"
       class="tab-btn ${i===0?'active':''} text-xs px-3 py-1.5">${tabLabels[i]}</button>`).join('')}
   </div>
@@ -3252,11 +3363,11 @@ async function renderBacktest(el) {
       <div class="chart-wrap h-64"><canvas id="btNavChart"></canvas></div>
     </div>
     <div class="card p-4">
-      <div class="text-sm font-semibold text-white mb-3">Drawdown Series</div>
+      <div class="text-sm font-semibold text-gray-900 mb-3">Drawdown Series</div>
       <div class="chart-wrap h-36"><canvas id="btDdChart"></canvas></div>
     </div>
-    <div id="bt-nav-notes" class="card p-4 mt-4 bg-white border border-blue-900/30">
-      <div class="text-xs text-gray-500"><i class="fas fa-info-circle mr-1 text-blue-400"></i>Select a strategy to see implementation notes.</div>
+    <div id="bt-nav-notes" class="card p-4 mt-4 bg-gray-50 border border-gray-200">
+      <div class="text-xs text-gray-500"><i class="fas fa-info-circle mr-1 text-gray-400"></i>Select a strategy to see implementation notes.</div>
     </div>
   </div>
 
@@ -3264,16 +3375,16 @@ async function renderBacktest(el) {
   <div id="bt-pane-compare" class="hidden">
     <div class="grid grid-cols-2 gap-4 mb-4">
       <div class="card p-4">
-        <div class="text-sm font-semibold text-white mb-3">CAGR vs Max Drawdown (Risk-Return)</div>
+        <div class="text-sm font-semibold text-gray-900 mb-3">CAGR vs Max Drawdown (Risk-Return)</div>
         <div class="chart-wrap h-56"><canvas id="btRiskReturnChart"></canvas></div>
       </div>
       <div class="card p-4">
-        <div class="text-sm font-semibold text-white mb-3">Sharpe / Sortino / Calmar Comparison</div>
+        <div class="text-sm font-semibold text-gray-900 mb-3">Sharpe / Sortino / Calmar Comparison</div>
         <div class="chart-wrap h-56"><canvas id="btRatiosChart"></canvas></div>
       </div>
     </div>
     <div class="card p-4">
-      <div class="text-sm font-semibold text-white mb-3">Full Metrics Comparison Table</div>
+      <div class="text-sm font-semibold text-gray-900 mb-3">Full Metrics Comparison Table</div>
       <div class="overflow-x-auto">
         <table class="data-table text-xs">
           <thead><tr>
@@ -3285,13 +3396,13 @@ async function renderBacktest(el) {
           </tr></thead>
           <tbody>
             ${cmpStrats.map(s=>`<tr>
-              <td class="font-semibold text-white text-[11px] whitespace-nowrap">${s.name.replace('(SPY 10Y)','').replace('(RF Proxy)','').trim()}</td>
+              <td class="font-semibold text-gray-900 text-[11px] whitespace-nowrap">${s.name.replace('(SPY 10Y)','').replace('(RF Proxy)','').trim()}</td>
               <td class="text-cyan-400 font-mono">${s.annualReturn.toFixed(1)}</td>
               <td class="text-emerald-400 font-mono">${s.totalReturn.toFixed(1)}</td>
               <td class="text-amber-400 font-mono">${s.sharpe}</td>
               <td class="text-amber-300 font-mono">${s.sortino}</td>
               <td class="text-red-400 font-mono">${s.maxDrawdown.toFixed(1)}</td>
-              <td class="text-blue-400 font-mono">${s.calmarRatio}</td>
+              <td class="text-gray-700 font-mono">${s.calmarRatio}</td>
               <td class="text-gray-400 font-mono">${s.winRate}</td>
               <td class="text-purple-400 font-mono">${s.profitFactor}</td>
               <td class="text-gray-500 font-mono">${s.avgHoldDays}d</td>
@@ -3355,8 +3466,8 @@ async function renderBacktest(el) {
     <div class="grid grid-cols-2 gap-4 mb-4">
       <!-- Model Card -->
       <div class="card p-4">
-        <div class="text-sm font-semibold text-white mb-3">
-          <i class="fas fa-robot mr-1 text-cyan-400"></i>
+        <div class="text-sm font-semibold text-gray-900 mb-3">
+          <i class="fas fa-robot mr-1 text-indigo-500"></i>
           ${mlModel.modelType}
         </div>
         <div class="grid grid-cols-2 gap-3 mb-4">
@@ -3391,7 +3502,7 @@ async function renderBacktest(el) {
       </div>
       <!-- Feature Importance -->
       <div class="card p-4">
-        <div class="text-sm font-semibold text-white mb-3">Feature Importance (RF — MDI)</div>
+        <div class="text-sm font-semibold text-gray-900 mb-3">Feature Importance (RF — MDI)</div>
         <div class="space-y-2 mb-4">
           ${mlModel.featureImportance.map(f=>`
           <div class="flex items-center gap-2">
@@ -3402,9 +3513,9 @@ async function renderBacktest(el) {
             <span class="text-xs font-mono text-cyan-400 w-10 text-right">${(f.importance*100).toFixed(0)}%</span>
           </div>`).join('')}
         </div>
-        <div class="text-[10px] text-gray-400 border-t border-gray-700/30 pt-2">
-          <div class="text-gray-500 font-semibold mb-1">Python Implementation (scikit-learn):</div>
-          <pre class="text-gray-500 text-[9px] leading-relaxed">from sklearn.ensemble import RandomForestRegressor
+        <div class="text-[10px] text-gray-600 border-t border-gray-200 pt-2">
+          <div class="text-gray-700 font-semibold mb-1">Python Implementation (scikit-learn):</div>
+          <pre class="text-gray-700 text-[9px] leading-relaxed bg-gray-50 p-2 rounded">from sklearn.ensemble import RandomForestRegressor
 features = ${JSON.stringify(mlModel.features)}
 X_train = historical_df[features].fillna(0)
 y_train = historical_df["actual_6m_return"]
@@ -3416,7 +3527,7 @@ model.fit(X_train, y_train)
     </div>
     <!-- Sample Predictions -->
     <div class="card p-4">
-      <div class="text-sm font-semibold text-white mb-3">Live Inference Samples (Test Period)</div>
+      <div class="text-sm font-semibold text-gray-900 mb-3">Live Inference Samples (Test Period)</div>
       <table class="data-table text-xs">
         <thead><tr>
           <th>Date</th><th>Drop%</th><th>Vol×</th><th>RSI</th><th>VIX</th><th>MA200 Dev</th>
@@ -3457,6 +3568,114 @@ model.fit(X_train, y_train)
       <div class="text-gray-500 text-center py-4">Loading trades...</div>
     </div>
   </div>
+
+  <!-- ── TAB: My Portfolio ─────────────────────────────────────────────── -->
+  <div id="bt-pane-portfolio" class="hidden">
+
+    <!-- Header / instructions -->
+    <div class="bg-indigo-50 border border-indigo-200 rounded-lg p-4 mb-4 flex items-start gap-3">
+      <i class="fas fa-briefcase text-indigo-500 mt-0.5"></i>
+      <div>
+        <div class="font-semibold text-gray-900 text-sm mb-1">个人持仓回测 — My Portfolio Backtest</div>
+        <div class="text-xs text-gray-600 leading-relaxed">输入您的个股买入记录（代码、日期、成本价、数量），系统自动拉取当前最新价格计算盈亏，并与 SPY 买入持有基准做比对。数据来源：Yahoo Finance + FactSet 交叉验证。</div>
+      </div>
+    </div>
+
+    <!-- Add position form -->
+    <div class="card p-4 mb-4">
+      <div class="text-sm font-semibold text-gray-900 mb-3">
+        <i class="fas fa-plus-circle text-indigo-500 mr-1"></i>添加持仓
+      </div>
+      <div class="grid grid-cols-5 gap-3 mb-3">
+        <div>
+          <label class="text-[10px] text-gray-500 uppercase tracking-wide block mb-1">股票代码 Ticker</label>
+          <input id="pf-ticker" type="text" placeholder="AAPL" maxlength="10"
+            class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm font-mono text-gray-900 bg-white focus:outline-none focus:border-indigo-400 uppercase"
+            style="text-transform:uppercase">
+        </div>
+        <div>
+          <label class="text-[10px] text-gray-500 uppercase tracking-wide block mb-1">买入日期 Buy Date</label>
+          <input id="pf-date" type="date"
+            class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm text-gray-900 bg-white focus:outline-none focus:border-indigo-400">
+        </div>
+        <div>
+          <label class="text-[10px] text-gray-500 uppercase tracking-wide block mb-1">成本价 Cost Basis ($)</label>
+          <input id="pf-cost" type="number" placeholder="150.00" step="0.01" min="0"
+            class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm font-mono text-gray-900 bg-white focus:outline-none focus:border-indigo-400">
+        </div>
+        <div>
+          <label class="text-[10px] text-gray-500 uppercase tracking-wide block mb-1">持仓数量 Shares</label>
+          <input id="pf-shares" type="number" placeholder="100" step="1" min="1"
+            class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm font-mono text-gray-900 bg-white focus:outline-none focus:border-indigo-400">
+        </div>
+        <div class="flex items-end">
+          <button onclick="pfAddPosition()"
+            class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded px-3 py-1.5 transition">
+            <i class="fas fa-plus mr-1"></i>添加
+          </button>
+        </div>
+      </div>
+      <div id="pf-add-msg" class="text-xs text-red-500 hidden"></div>
+    </div>
+
+    <!-- Portfolio summary KPIs -->
+    <div id="pf-summary" class="grid grid-cols-4 gap-3 mb-4"></div>
+
+    <!-- Positions table -->
+    <div class="card p-4 mb-4">
+      <div class="flex items-center justify-between mb-3">
+        <div class="text-sm font-semibold text-gray-900">持仓明细 Position Detail</div>
+        <div class="flex gap-2">
+          <button onclick="pfRefreshPrices()" class="text-xs border border-gray-300 px-2 py-1 rounded text-gray-600 hover:bg-gray-50">
+            <i class="fas fa-sync-alt mr-1"></i>刷新价格
+          </button>
+          <button onclick="pfClearAll()" class="text-xs border border-red-200 px-2 py-1 rounded text-red-500 hover:bg-red-50">
+            <i class="fas fa-trash mr-1"></i>清空
+          </button>
+        </div>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="data-table text-xs w-full" id="pf-table">
+          <thead><tr>
+            <th>Ticker</th>
+            <th>买入日期</th>
+            <th>成本价 $</th>
+            <th>数量</th>
+            <th>总成本 $</th>
+            <th>当前价 $</th>
+            <th>当前市值 $</th>
+            <th>盈亏 $ (未实现)</th>
+            <th>盈亏 %</th>
+            <th>持仓天数</th>
+            <th>年化回报 %</th>
+            <th>FactSet验证</th>
+            <th>操作</th>
+          </tr></thead>
+          <tbody id="pf-tbody">
+            <tr><td colspan="13" class="text-center text-gray-400 py-6">尚无持仓 — 点击上方添加个股</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- vs SPY benchmark comparison -->
+    <div class="card p-4">
+      <div class="text-sm font-semibold text-gray-900 mb-3">
+        <i class="fas fa-chart-bar text-gray-500 mr-1"></i>
+        组合 vs SPY Buy-and-Hold 同期比较
+      </div>
+      <div id="pf-vs-spy" class="text-xs text-gray-500 py-3 text-center">添加持仓后自动计算比较结果</div>
+    </div>
+
+    <!-- Methodology note -->
+    <div class="mt-4 bg-gray-50 border border-gray-200 rounded-lg p-3 text-[10px] text-gray-500 leading-relaxed">
+      <i class="fas fa-info-circle text-gray-400 mr-1"></i>
+      <b>数据验证说明：</b>当前价格通过 Yahoo Finance API 实时拉取（/api/screener/us 中的价格数据），并与 FactSet 基本面数据库中的公司信息交叉比对，确保股票代码有效。
+      盈亏计算公式：<code class="bg-gray-100 px-1 rounded">未实现盈亏 = (当前价 − 成本价) × 数量</code>；
+      年化回报 = <code class="bg-gray-100 px-1 rounded">((当前价/成本价)^(365/持仓天数) − 1) × 100%</code>。
+      <b class="text-amber-600">注：价格为最近交易日收盘价，非实时价格，仅供参考。</b>
+    </div>
+  </div>
   `
 
   // ── Initialize charts and data ────────────────────────────────────────────
@@ -3471,7 +3690,7 @@ model.fit(X_train, y_train)
 
 // ── Tab switcher ──────────────────────────────────────────────────────────────
 window.btTab = function(id) {
-  ['nav','compare','dips','ml','tradelog'].forEach(t => {
+  ['nav','compare','dips','ml','tradelog','portfolio'].forEach(t => {
     document.getElementById(`bt-pane-${t}`)?.classList.toggle('hidden', t !== id)
     document.getElementById(`bt-tab-${t}`)?.classList.toggle('active', t === id)
   })
@@ -3680,6 +3899,282 @@ function renderDipTable(events) {
     </tbody>
   </table>`
 }
+
+
+// ╔══════════════════════════════════════════════════════════════════════╗
+// ║  7b. MY PORTFOLIO — personal position tracker                        ║
+// ╚══════════════════════════════════════════════════════════════════════╝
+
+const PF_KEY = 'qa_portfolio_v1';
+
+function pfLoad() {
+  try { return JSON.parse(localStorage.getItem(PF_KEY) || '[]'); } catch(e){ return []; }
+}
+function pfSave(p) { localStorage.setItem(PF_KEY, JSON.stringify(p)); }
+function pfGenId() { return Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
+
+// Validate ticker against screener data (FactSet cross-validation)
+async function pfValidateTicker(ticker) {
+  try {
+    const { data } = await axios.get(`${API}/api/screener/us?marketCapMin=0&revenueGrowthMin=-999&grossMarginMin=-999`);
+    const stocks = data.stocks || [];
+    const match = stocks.find(s => s.ticker && s.ticker.toUpperCase() === ticker.toUpperCase());
+    if (match) {
+      return { valid: true, name: match.name, sector: match.sector, currentPrice: match.price, marketCap: match.marketCap, factsetValidated: true };
+    }
+    // Fallback: try to find via stock detail
+    try {
+      const { data: detail } = await axios.get(`${API}/api/stock/${ticker}`);
+      if (detail && detail.stock && detail.stock.ticker) {
+        return { valid: true, name: detail.stock.name, sector: detail.stock.sector, currentPrice: detail.stock.price, marketCap: detail.stock.marketCap, factsetValidated: false };
+      }
+    } catch(e2) {}
+    return { valid: false, name: null };
+  } catch(e) {
+    return { valid: false, name: null };
+  }
+}
+
+window.pfAddPosition = async function() {
+  const ticker  = (document.getElementById('pf-ticker')?.value || '').trim().toUpperCase();
+  const dateVal = document.getElementById('pf-date')?.value;
+  const cost    = parseFloat(document.getElementById('pf-cost')?.value);
+  const shares  = parseFloat(document.getElementById('pf-shares')?.value);
+  const msgEl   = document.getElementById('pf-add-msg');
+
+  if (!ticker)          { msgEl.textContent = '请输入股票代码'; msgEl.classList.remove('hidden'); return; }
+  if (!dateVal)         { msgEl.textContent = '请选择买入日期'; msgEl.classList.remove('hidden'); return; }
+  if (isNaN(cost) || cost <= 0)   { msgEl.textContent = '请输入有效成本价（> 0）'; msgEl.classList.remove('hidden'); return; }
+  if (isNaN(shares) || shares <= 0) { msgEl.textContent = '请输入有效数量（> 0）'; msgEl.classList.remove('hidden'); return; }
+  if (new Date(dateVal) > new Date()) { msgEl.textContent = '买入日期不能晚于今天'; msgEl.classList.remove('hidden'); return; }
+
+  msgEl.textContent = '⏳ 验证股票代码中...'; msgEl.classList.remove('hidden'); msgEl.className = 'text-xs text-amber-600';
+
+  const validation = await pfValidateTicker(ticker);
+  if (!validation.valid) {
+    msgEl.textContent = `股票代码 ${ticker} 在数据库中未找到，请检查代码是否正确`;
+    msgEl.className = 'text-xs text-red-500';
+    return;
+  }
+
+  msgEl.classList.add('hidden');
+
+  const positions = pfLoad();
+  positions.push({
+    id: pfGenId(),
+    ticker,
+    name: validation.name || ticker,
+    sector: validation.sector || '—',
+    buyDate: dateVal,
+    costBasis: cost,
+    shares,
+    currentPrice: validation.currentPrice || cost,
+    lastUpdated: new Date().toISOString().slice(0,10),
+    factsetValidated: validation.factsetValidated
+  });
+  pfSave(positions);
+
+  // Clear inputs
+  ['pf-ticker','pf-date','pf-cost','pf-shares'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+
+  pfRender();
+};
+
+window.pfRemovePosition = function(id) {
+  const positions = pfLoad().filter(p => p.id !== id);
+  pfSave(positions);
+  pfRender();
+};
+
+window.pfClearAll = function() {
+  if (!confirm('确认清空所有持仓记录？')) return;
+  pfSave([]);
+  pfRender();
+};
+
+window.pfRefreshPrices = async function() {
+  const btn = event?.target;
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>更新中...'; }
+  
+  const positions = pfLoad();
+  if (positions.length === 0) {
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-sync-alt mr-1"></i>刷新价格'; }
+    return;
+  }
+
+  try {
+    // Fetch latest screener data for price updates
+    const { data } = await axios.get(`${API}/api/screener/us?marketCapMin=0&revenueGrowthMin=-999&grossMarginMin=-999`);
+    const stockMap = {};
+    (data.stocks || []).forEach(s => { if(s.ticker) stockMap[s.ticker.toUpperCase()] = s; });
+
+    const today = new Date().toISOString().slice(0,10);
+    let updated = 0;
+    positions.forEach(p => {
+      const stock = stockMap[p.ticker.toUpperCase()];
+      if (stock && stock.price) {
+        p.currentPrice = stock.price;
+        p.lastUpdated = today;
+        updated++;
+      }
+    });
+    pfSave(positions);
+    pfRender();
+    // Flash update notice
+    const vs = document.getElementById('pf-vs-spy');
+    if (vs && updated > 0) {
+      const notice = document.createElement('div');
+      notice.className = 'text-[10px] text-emerald-600 text-right mb-1';
+      notice.textContent = `✓ 已更新 ${updated} 只股票价格 (${today})`;
+      vs.parentElement?.insertBefore(notice, vs);
+      setTimeout(() => notice.remove(), 4000);
+    }
+  } catch(e) {
+    console.error('pfRefreshPrices error', e);
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-sync-alt mr-1"></i>刷新价格'; }
+  }
+};
+
+function pfCalcDays(buyDate) {
+  const buy = new Date(buyDate);
+  const now = new Date();
+  return Math.max(1, Math.round((now - buy) / 86400000));
+}
+
+function pfCalcAnnualized(costBasis, currentPrice, days) {
+  if (days < 1 || costBasis <= 0) return 0;
+  return (Math.pow(currentPrice / costBasis, 365 / days) - 1) * 100;
+}
+
+function pfRender() {
+  const positions = pfLoad();
+
+  // Render summary KPIs
+  const summaryEl = document.getElementById('pf-summary');
+  if (!summaryEl) return;
+
+  if (positions.length === 0) {
+    summaryEl.innerHTML = '';
+    const tbody = document.getElementById('pf-tbody');
+    if (tbody) tbody.innerHTML = '<tr><td colspan="13" class="text-center text-gray-400 py-6">尚无持仓 — 点击上方添加个股</td></tr>';
+    const vsEl = document.getElementById('pf-vs-spy');
+    if (vsEl) vsEl.innerHTML = '<span class="text-gray-400">添加持仓后自动计算比较结果</span>';
+    return;
+  }
+
+  let totalCostAll = 0, totalMktVal = 0, totalPnL = 0;
+  positions.forEach(p => {
+    const cost = p.costBasis * p.shares;
+    const mkt  = p.currentPrice * p.shares;
+    totalCostAll += cost;
+    totalMktVal  += mkt;
+    totalPnL     += (mkt - cost);
+  });
+  const totalPnLPct = totalCostAll > 0 ? (totalPnL / totalCostAll) * 100 : 0;
+
+  summaryEl.innerHTML = [
+    ['总持仓数', positions.length + ' stocks', null, ''],
+    ['总成本', '$' + totalCostAll.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0}), null, ''],
+    ['当前市值', '$' + totalMktVal.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0}), null, ''],
+    ['未实现盈亏', (totalPnL>=0?'+$':'−$') + Math.abs(totalPnL).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0}),
+     (totalPnLPct>=0?'+':'')+totalPnLPct.toFixed(1)+'%', totalPnL>=0?'text-emerald-600':'text-red-500']
+  ].map(([label, val, sub, color]) => `
+    <div class="kpi-card">
+      <div class="text-[10px] text-gray-500 mb-1">${label}</div>
+      <div class="text-xl font-bold ${color||'text-gray-900'}">${val}</div>
+      ${sub ? `<div class="text-[10px] ${color||'text-gray-500'} mt-0.5">${sub}</div>` : ''}
+    </div>`).join('');
+
+  // Render positions table
+  const tbody = document.getElementById('pf-tbody');
+  if (tbody) {
+    tbody.innerHTML = positions.map(p => {
+      const days    = pfCalcDays(p.buyDate);
+      const mktVal  = p.currentPrice * p.shares;
+      const pnl     = (p.currentPrice - p.costBasis) * p.shares;
+      const pnlPct  = ((p.currentPrice - p.costBasis) / p.costBasis) * 100;
+      const annual  = pfCalcAnnualized(p.costBasis, p.currentPrice, days);
+      const pnlClass = pnl >= 0 ? 'text-emerald-600 font-bold' : 'text-red-500 font-bold';
+      return `<tr>
+        <td class="font-mono font-bold text-gray-900">${p.ticker}</td>
+        <td class="font-mono text-gray-500">${p.buyDate}</td>
+        <td class="font-mono text-gray-700">${p.costBasis.toFixed(2)}</td>
+        <td class="font-mono text-gray-700">${p.shares.toLocaleString()}</td>
+        <td class="font-mono text-gray-600">$${(p.costBasis*p.shares).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})}</td>
+        <td class="font-mono font-semibold text-gray-900">${p.currentPrice.toFixed(2)}</td>
+        <td class="font-mono text-gray-700">$${mktVal.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})}</td>
+        <td class="font-mono ${pnlClass}">${pnl>=0?'+$':'−$'}${Math.abs(pnl).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})}</td>
+        <td class="font-mono ${pnlClass}">${pnlPct>=0?'+':''}${pnlPct.toFixed(1)}%</td>
+        <td class="font-mono text-gray-500">${days}d</td>
+        <td class="font-mono ${annual>=0?'text-emerald-600':'text-red-500'}">${annual>=0?'+':''}${annual.toFixed(1)}%</td>
+        <td class="text-center text-[10px]">${p.factsetValidated ? '<span class="text-emerald-600">✓FS</span>' : '<span class="text-amber-500">~YF</span>'}</td>
+        <td><button onclick="pfRemovePosition('${p.id}')" class="text-red-400 hover:text-red-600 text-[11px] px-1">✕</button></td>
+      </tr>`;
+    }).join('');
+  }
+
+  // vs SPY comparison
+  pfRenderVsSPY(positions, totalCostAll, totalMktVal, totalPnLPct);
+}
+
+function pfRenderVsSPY(positions, totalCost, totalMktVal, portfolioPnLPct) {
+  const vsEl = document.getElementById('pf-vs-spy');
+  if (!vsEl) return;
+
+  // Compute weighted average holding period
+  let weightedDays = 0;
+  positions.forEach(p => {
+    const w = (p.costBasis * p.shares) / totalCost;
+    weightedDays += pfCalcDays(p.buyDate) * w;
+  });
+  const avgDays = Math.round(weightedDays);
+
+  // SPY proxy: approximate annualized SPY return ~12% (2020-2025 realized)
+  const SPY_ANNUAL_PCT = 12.0;
+  const spyPeriodReturn = (Math.pow(1 + SPY_ANNUAL_PCT/100, avgDays/365) - 1) * 100;
+  const spyCost = totalCost;
+  const spyMktVal = totalCost * (1 + spyPeriodReturn/100);
+  const spyPnL = spyMktVal - spyCost;
+  const alpha = portfolioPnLPct - spyPeriodReturn;
+
+  const pnlClass = portfolioPnLPct >= 0 ? 'text-emerald-600' : 'text-red-500';
+  const spyClass = spyPeriodReturn >= 0 ? 'text-gray-700' : 'text-red-500';
+  const alphaClass = alpha >= 0 ? 'text-emerald-600 font-bold' : 'text-red-500 font-bold';
+
+  vsEl.innerHTML = `
+    <div class="grid grid-cols-3 gap-4 text-center">
+      <div class="bg-white border border-gray-200 rounded-lg p-3">
+        <div class="text-[10px] text-gray-500 mb-1">我的组合回报</div>
+        <div class="text-2xl font-bold ${pnlClass}">${portfolioPnLPct>=0?'+':''}${portfolioPnLPct.toFixed(1)}%</div>
+        <div class="text-[10px] text-gray-400 mt-1">加权平均持仓 ${avgDays} 天</div>
+      </div>
+      <div class="bg-white border border-gray-200 rounded-lg p-3">
+        <div class="text-[10px] text-gray-500 mb-1">SPY 同期预估回报</div>
+        <div class="text-2xl font-bold ${spyClass}">${spyPeriodReturn>=0?'+':''}${spyPeriodReturn.toFixed(1)}%</div>
+        <div class="text-[10px] text-gray-400 mt-1">${SPY_ANNUAL_PCT}% 年化基准 · ${avgDays}d</div>
+      </div>
+      <div class="bg-indigo-50 border border-indigo-200 rounded-lg p-3">
+        <div class="text-[10px] text-gray-500 mb-1">超额收益 Alpha</div>
+        <div class="text-2xl font-bold ${alphaClass}">${alpha>=0?'+':''}${alpha.toFixed(1)}%</div>
+        <div class="text-[10px] text-gray-400 mt-1">${alpha>=0?'跑赢基准 ✓':'跑输基准 ✗'}</div>
+      </div>
+    </div>
+    <div class="mt-3 text-[10px] text-gray-400 text-center">
+      SPY 年化基准使用 2020–2025 实际回报约 12%/年；仅供参考，非精确实时数据。
+    </div>
+  `;
+}
+
+// Auto-render when portfolio tab is opened
+document.addEventListener('click', function(e) {
+  if (e.target && e.target.textContent && e.target.textContent.includes('My Portfolio')) {
+    setTimeout(pfRender, 50);
+  }
+});
 
 // ╔══════════════════════════════════════════════════════════════════════╗
 // ║  8. PERFORMANCE ANALYTICS (Bloomberg PE Model风格)                   ║
@@ -4099,7 +4594,7 @@ async function renderNewsAgent(el) {
 
       <!-- Article Feed Table -->
       <div class="bg-white rounded-xl border border-[#1e2d4a] overflow-hidden">
-        <div class="flex items-center justify-between px-4 py-3 border-b border-[#1e2d4a]">
+        <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200">
           <div class="flex items-center gap-2">
             <i class="fas fa-rss text-orange-400 text-sm"></i>
             <span class="text-sm font-semibold text-gray-900">Article Feed</span>
@@ -4134,7 +4629,7 @@ async function renderNewsAgent(el) {
 
       <!-- AI Morning Brief -->
       <div class="bg-white rounded-xl border border-[#1e2d4a] overflow-hidden">
-        <div class="flex items-center justify-between px-4 py-3 border-b border-[#1e2d4a]">
+        <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200">
           <div class="flex items-center gap-2">
             <i class="fas fa-robot text-violet-400 text-sm"></i>
             <span class="text-sm font-semibold text-gray-900">AI Morning Brief</span>
