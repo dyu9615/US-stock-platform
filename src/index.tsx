@@ -350,6 +350,109 @@ app.get('/api/news/health', (c) => {
   })
 })
 
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║  LIVE DATA PROXY — forwards to Python data microservice (port 3001)     ║
+// ║  Layer 1: Yahoo Finance real data  |  Layer 2: FactSet cross-validation ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
+
+const DATA_SVC = 'http://localhost:3001'
+
+async function proxyFetch(url: string): Promise<Response> {
+  const resp = await fetch(url)
+  const body = await resp.text()
+  return new Response(body, {
+    status: resp.status,
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
+
+// ── Real Yahoo Finance quote ────────────────────────────────────────────────
+app.get('/api/live/quote/:ticker', async (c) => {
+  try {
+    return proxyFetch(`${DATA_SVC}/api/yf/quote/${c.req.param('ticker')}`)
+  } catch(e: any) {
+    return c.json({ error: e.message, source: 'data_service_unavailable' }, 503)
+  }
+})
+
+// ── Live screener universe (real YF data + 5-factor scoring) ────────────────
+app.get('/api/live/screener', async (c) => {
+  const tickers = c.req.query('tickers') || ''
+  try {
+    const url = tickers
+      ? `${DATA_SVC}/api/yf/screener?tickers=${tickers}`
+      : `${DATA_SVC}/api/yf/screener`
+    return proxyFetch(url)
+  } catch(e: any) {
+    return c.json({ error: e.message, source: 'data_service_unavailable', stocks: [] }, 503)
+  }
+})
+
+// ── Full audit-grade deep analysis (EV / Adj.EBITDA / FCF / Net Leverage) ──
+app.get('/api/live/deep/:ticker', async (c) => {
+  try {
+    return proxyFetch(`${DATA_SVC}/api/yf/deep/${c.req.param('ticker')}`)
+  } catch(e: any) {
+    return c.json({ error: e.message, source: 'data_service_unavailable' }, 503)
+  }
+})
+
+// ── Quarterly financials (P&L / Balance / Cash flow) ───────────────────────
+app.get('/api/live/financials/:ticker', async (c) => {
+  try {
+    return proxyFetch(`${DATA_SVC}/api/yf/financials/${c.req.param('ticker')}`)
+  } catch(e: any) {
+    return c.json({ error: e.message, source: 'data_service_unavailable' }, 503)
+  }
+})
+
+// ── 1-year price history + OHLCV ────────────────────────────────────────────
+app.get('/api/live/history/:ticker', async (c) => {
+  const period = c.req.query('period') || '1y'
+  const interval = c.req.query('interval') || '1d'
+  try {
+    return proxyFetch(`${DATA_SVC}/api/yf/history/${c.req.param('ticker')}?period=${period}&interval=${interval}`)
+  } catch(e: any) {
+    return c.json({ error: e.message, source: 'data_service_unavailable' }, 503)
+  }
+})
+
+// ── Analyst upgrades/downgrades ──────────────────────────────────────────────
+app.get('/api/live/analyst/:ticker', async (c) => {
+  try {
+    return proxyFetch(`${DATA_SVC}/api/yf/analyst/${c.req.param('ticker')}`)
+  } catch(e: any) {
+    return c.json({ error: e.message, source: 'data_service_unavailable' }, 503)
+  }
+})
+
+// ── Real macro data (VIX, Treasury yields) ──────────────────────────────────
+app.get('/api/live/macro', async (c) => {
+  try {
+    return proxyFetch(`${DATA_SVC}/api/yf/macro`)
+  } catch(e: any) {
+    return c.json({ error: e.message, source: 'data_service_unavailable' }, 503)
+  }
+})
+
+// ── FactSet cross-validation ─────────────────────────────────────────────────
+app.get('/api/live/factset/:ticker', async (c) => {
+  try {
+    return proxyFetch(`${DATA_SVC}/api/factset/validate/${c.req.param('ticker')}`)
+  } catch(e: any) {
+    return c.json({ error: e.message, source: 'data_service_unavailable' }, 503)
+  }
+})
+
+// ── Data service health ───────────────────────────────────────────────────────
+app.get('/api/live/health', async (c) => {
+  try {
+    return proxyFetch(`${DATA_SVC}/api/health`)
+  } catch(e: any) {
+    return c.json({ status: 'offline', error: e.message }, 503)
+  }
+})
+
 // ── MAIN PAGE ────────────────────────────────────────────────────────────────
 app.get('/', (c) => {
   return c.html(`<!DOCTYPE html>
@@ -429,6 +532,7 @@ function navItems() {
     { id: 'dashboard',   icon: 'fas fa-th-large',      label: '总控台',     badge: '' },
     { id: 'datacenter',  icon: 'fas fa-database',       label: '数据中心',   badge: 'US' },
     { id: 'screener',    icon: 'fas fa-filter',         label: '五因子筛选', badge: 'AI' },
+    { id: 'stockanalysis', icon: 'fas fa-microscope',    label: '个股深度', badge: 'LIVE' },
     { id: 'strategies',  icon: 'fas fa-brain',          label: '策略管理',   badge: '' },
     { id: 'mlfinance',   icon: 'fas fa-robot',          label: '机器学习',   badge: 'NEW' },
     { id: 'newsagent',   icon: 'fas fa-newspaper',      label: '新闻情报',   badge: '6M' },

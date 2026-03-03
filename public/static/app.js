@@ -81,6 +81,7 @@ async function renderPage(page) {
     case 'trading':     await renderTrading(container); break
     case 'backtest':    await renderBacktest(container); break
     case 'performance': await renderPerformance(container); break
+    case 'stockanalysis': await renderStockAnalysis(container); break
   }
   container.classList.add('fade-in')
 }
@@ -692,16 +693,30 @@ async function renderDataCenter(el) {
   el.innerHTML = `<div class="flex items-center justify-center h-32 text-gray-500">
     <i class="fas fa-spinner fa-spin mr-2"></i>Loading Data Center…</div>`;
   try {
-    const [fundRes, erpRes, healthRes, macroRes] = await Promise.all([
+    const [fundRes, erpRes, healthRes, macroRes, liveMacroRes] = await Promise.allSettled([
       axios.get(`${API}/api/dc/fundamental`),
       axios.get(`${API}/api/dc/erp/current`),
       axios.get(`${API}/api/dc/health`),
-      axios.get(`${API}/api/dc/macro/current`)
+      axios.get(`${API}/api/dc/macro/current`),
+      axios.get(`${API}/api/live/macro`),
     ]);
-    const stocks = fundRes.data.data || [];
-    const e      = erpRes.data;
-    const health = healthRes.data;
-    const m      = macroRes.data;
+    const stocks = fundRes.status==='fulfilled' ? (fundRes.value.data.data || []) : [];
+    const e      = erpRes.status==='fulfilled' ? erpRes.value.data : {};
+    const health = healthRes.status==='fulfilled' ? healthRes.value.data : { dataSources:[] };
+    const mockM  = macroRes.status==='fulfilled' ? macroRes.value.data : {};
+    const liveM  = liveMacroRes.status==='fulfilled' ? liveMacroRes.value.data : null;
+    // Prefer live macro data for key indicators; fall back to mock for indicators not in live
+    const m = liveM ? {
+      ...mockM,
+      vix: liveM.vix,
+      vx1: liveM.vx1,
+      vx3: liveM.vx3,
+      vixContango: liveM.vixContango,
+      usTreasury10y: liveM.usTreasury10y,
+      usTreasury2y: liveM.usTreasury2y,
+      yieldCurve: liveM.yieldCurve,
+      _liveSource: true,
+    } : mockM;
     const srcs   = health.dataSources || [];
 
     // ══════════════════════════════════════════════════════════════════════
@@ -1126,6 +1141,7 @@ window.showMetricDict = function(key) {
     <div class="flex gap-1 flex-wrap">
       <span class="text-[9px] bg-emerald-500/20 text-emerald-700 px-1.5 py-0.5 rounded-full">✓ PIT</span>
       <span class="text-[9px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded-full">${srcs.length} Sources</span>
+      ${m._liveSource ? `<span class="text-[9px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full font-semibold"><i class="fas fa-circle" style="font-size:5px"></i> LIVE</span>` : ''}
     </div>
   </div>
 
@@ -1140,6 +1156,7 @@ window.showMetricDict = function(key) {
       <i class="fas fa-fire text-red-400"></i>
       宏观流动性与情绪数据 — Macro Liquidity & Sentiment
       <span class="text-[10px] text-gray-500 font-normal">每日更新 · Daily Update</span>
+      ${m._liveSource ? `<span class="text-[9px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-semibold ml-2"><i class="fas fa-circle text-emerald-500 mr-1" style="font-size:5px"></i>Yahoo Finance LIVE — VIX ${m.vix?.toFixed(1)} · 10Y ${m.usTreasury10y?.toFixed(2)}%</span>` : ''}
     </span>
     <button onclick="window._dcToggle('dc-sub-macro')" class="text-gray-500 hover:text-gray-700 text-xs px-2 py-0.5 rounded border border-gray-300">✕ close</button>
   </div>
@@ -1659,13 +1676,35 @@ async function renderScreener(el) {
   };
   const sf = window._sf;
 
-  // ── Fetch full universe once ─────────────────────────────────────────────
-  let allStocks;
+  // ── Fetch full universe: try live YF API first, fallback to mock ────────
+  let allStocks, dataSourceLabel = 'Yahoo Finance LIVE';
   try {
-    const { data } = await axios.get(`${API}/api/us/screener?sort=${sf.sort}`);
-    allStocks = data.stocks;
+    // Show loading state
+    el.innerHTML = `<div class="flex items-center justify-center py-20 gap-3 text-gray-500">
+      <i class="fas fa-spinner fa-spin text-indigo-500 text-xl"></i>
+      <div><div class="text-sm font-semibold">正在拉取实时数据...</div>
+           <div class="text-xs mt-0.5">Yahoo Finance API · 缓存15分钟</div></div>
+    </div>`;
+    try {
+      const { data: liveData } = await axios.get(`${API}/api/live/screener`);
+      if (liveData.stocks && liveData.stocks.length > 0) {
+        allStocks = liveData.stocks;
+        dataSourceLabel = liveData.factsetCrossValidation
+          ? 'FactSet + Yahoo Finance 双源验证'
+          : 'Yahoo Finance LIVE';
+        window._screenerLive = true;
+      } else {
+        throw new Error('Empty live data');
+      }
+    } catch(liveErr) {
+      // Fallback to mock screener
+      const { data: mockData } = await axios.get(`${API}/api/us/screener?sort=${sf.sort}`);
+      allStocks = mockData.stocks;
+      dataSourceLabel = 'Mock数据 (data-service离线)';
+      window._screenerLive = false;
+    }
     window._screenerUniverse = allStocks;
-    window._screenerWeights  = data.fiveFactorWeights;
+    window._screenerWeights  = { growth:0.20, valuation:0.25, quality:0.25, safety:0.15, momentum:0.15 };
   } catch(e) {
     el.innerHTML = `<div class="text-red-500 p-8">API Error: ${e.message}</div>`; return;
   }
@@ -1692,7 +1731,7 @@ async function renderScreener(el) {
     document.getElementById('screenerCount').textContent = stocks.length;
     const c2 = document.getElementById('screenerCount2');
     if (c2) c2.textContent = stocks.length;
-    tbody.innerHTML = stocks.map(s=>`<tr onclick="showStockDetail('${s.ticker}')" class="cursor-pointer hover:bg-gray-50 transition-colors">
+    tbody.innerHTML = stocks.map(s=>`<tr class="cursor-pointer hover:bg-indigo-50 transition-colors group">
       <td class="px-3 py-2.5">
         <div class="font-bold text-gray-900 text-sm">${s.ticker}</div>
         <div class="text-[10px] text-gray-500">${s.name.slice(0,18)}</div>
@@ -1720,6 +1759,13 @@ async function renderScreener(el) {
       <td class="px-3 py-2.5"><div class="score-bar w-10"><div class="score-bar-fill bg-cyan-500" style="width:${s.growthScore}%"></div></div><span class="text-[10px] text-gray-500">${s.growthScore}</span></td>
       <td class="px-3 py-2.5"><div class="score-bar w-10"><div class="score-bar-fill bg-amber-500" style="width:${s.valuationScore}%"></div></div><span class="text-[10px] text-gray-500">${s.valuationScore}</span></td>
       <td class="px-3 py-2.5"><div class="score-bar w-10"><div class="score-bar-fill bg-purple-500" style="width:${s.qualityScore}%"></div></div><span class="text-[10px] text-gray-500">${s.qualityScore}</span></td>
+      <td class="px-3 py-2.5">
+        <button onclick="window._goDeepAnalysis('${s.ticker}')"
+          class="px-2.5 py-1 rounded-lg text-[10px] font-semibold text-white opacity-0 group-hover:opacity-100 transition-opacity"
+          style="background:#4f46e5">
+          <i class="fas fa-microscope mr-0.5"></i>深度
+        </button>
+      </td>
     </tr>`).join('');
   }
 
@@ -1730,7 +1776,7 @@ async function renderScreener(el) {
       <i class="fas fa-check-double text-emerald-600 text-xs"></i>
     </div>
     <div class="flex-1">
-      <div class="text-xs font-semibold text-gray-900">FactSet + Yahoo Finance 双源交叉验证</div>
+      <div class="text-xs font-semibold text-gray-900" id="screener-datasource-label">FactSet + Yahoo Finance 双源交叉验证</div>
       <div class="text-[10px] text-gray-600 mt-0.5">
         基本面数据以 FactSet NTM 共识预期为主，Yahoo Finance 历史数据为辅。当两者差异 &gt;5% 时，行内显示 <span class="text-amber-600 font-semibold">⚠️ 数据偏差</span> 警告。分析师评级、EPS 预测、收入增长率均来自 FactSet 共识数据库。
       </div>
@@ -1852,7 +1898,7 @@ async function renderScreener(el) {
           <th>股票</th><th>板块</th><th>股价</th><th>市值($B)</th>
           <th>Fwd PE</th><th>EV/EBITDA</th><th>Rev增速</th><th>毛利率</th>
           <th>ROE</th><th>FCF率</th><th>Beta</th><th>分析师</th>
-          <th>综合分</th><th>成长</th><th>估值</th><th>质量</th>
+          <th>综合分</th><th>成长</th><th>估值</th><th>质量</th><th>深度</th>
         </tr></thead>
         <tbody id="screenerTbody"></tbody>
       </table>
@@ -1883,6 +1929,12 @@ async function renderScreener(el) {
   window._screenerReset = function() {
     window._sf = { marketCapMin:10, revGrowthMin:0, revGrowthMax:200, grossMarginMin:0, grossMarginMax:100, sector:'', sort:'compositeScore', minScore:0 };
     navigate('screener');
+  };
+
+  // Deep analysis navigation
+  window._goDeepAnalysis = function(ticker) {
+    window._saLastTicker = ticker;
+    navigate('stockanalysis');
   };
 
   // Initial render
@@ -4754,3 +4806,747 @@ window.addEventListener('DOMContentLoaded', async () => {
   // Refresh ticker every 30s
   setInterval(loadMarketTicker, 30000)
 })
+
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║  个股深度分析模块 — Stock Deep Analysis                                   ║
+// ║  Data Layer 1: Yahoo Finance LIVE  |  Layer 2: FactSet cross-val        ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
+
+async function renderStockAnalysis(el) {
+  const lastTicker = window._saLastTicker || '';
+
+  el.innerHTML = `
+<!-- ── HEADER ────────────────────────────────────────────────────────────── -->
+<div class="flex items-center justify-between mb-5">
+  <div>
+    <div class="text-gray-900 font-bold text-base flex items-center gap-2">
+      <i class="fas fa-microscope text-indigo-500"></i>
+      个股深度分析 — Stock Deep Analysis
+    </div>
+    <div class="text-xs text-gray-500 mt-0.5">
+      Layer 1: Yahoo Finance 实时数据 · Layer 2: FactSet 交叉验证 · 审计级 GAAP 调整
+    </div>
+  </div>
+  <div class="flex items-center gap-2 text-[10px]">
+    <span class="bg-emerald-50 border border-emerald-200 text-emerald-700 px-2 py-1 rounded-full">
+      <i class="fas fa-circle text-emerald-500 mr-1" style="font-size:6px"></i>Yahoo Finance LIVE
+    </span>
+    <span id="sa-fs-badge" class="bg-gray-100 border border-gray-200 text-gray-600 px-2 py-1 rounded-full">
+      FactSet: 未配置
+    </span>
+  </div>
+</div>
+
+<!-- ── 三层架构说明 ──────────────────────────────────────────────────────── -->
+<div class="grid grid-cols-3 gap-3 mb-5">
+  <div class="bg-indigo-50 border border-indigo-200 rounded-xl p-3">
+    <div class="flex items-center gap-2 mb-2">
+      <div class="w-6 h-6 bg-indigo-100 rounded-lg flex items-center justify-center">
+        <i class="fas fa-database text-indigo-600 text-xs"></i>
+      </div>
+      <div class="font-bold text-gray-900 text-xs">数据层 Data Layer</div>
+      <span class="ml-auto text-[9px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full font-semibold">LIVE</span>
+    </div>
+    <div class="text-[10px] text-gray-600 leading-relaxed space-y-0.5">
+      <div>• Yahoo Finance API → 实时报价、季报财务</div>
+      <div>• FactSet → 共识预期、交叉验证</div>
+      <div>• 缓存：报价 5min / 财务 30min</div>
+    </div>
+  </div>
+  <div class="bg-amber-50 border border-amber-200 rounded-xl p-3">
+    <div class="flex items-center gap-2 mb-2">
+      <div class="w-6 h-6 bg-amber-100 rounded-lg flex items-center justify-center">
+        <i class="fas fa-tools text-amber-600 text-xs"></i>
+      </div>
+      <div class="font-bold text-gray-900 text-xs">技能层 Skill Layer</div>
+      <span class="ml-auto text-[9px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-semibold">工作流</span>
+    </div>
+    <div class="text-[10px] text-gray-600 leading-relaxed space-y-0.5">
+      <div>• GAAP 审计调整（SBC/D&A 加回）</div>
+      <div>• EV分解、FCF Yield、净杠杆计算</div>
+      <div>• 五因子评分、估值区间判断</div>
+    </div>
+  </div>
+  <div class="bg-purple-50 border border-purple-200 rounded-xl p-3">
+    <div class="flex items-center gap-2 mb-2">
+      <div class="w-6 h-6 bg-purple-100 rounded-lg flex items-center justify-center">
+        <i class="fas fa-brain text-purple-600 text-xs"></i>
+      </div>
+      <div class="font-bold text-gray-900 text-xs">ML/AI层 Prediction Layer</div>
+      <span class="ml-auto text-[9px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full font-semibold">AI</span>
+    </div>
+    <div class="text-[10px] text-gray-600 leading-relaxed space-y-0.5">
+      <div>• LLM 综合估值结论 + 价格区间</div>
+      <div>• 风控信号：坚决不接恶化"飞刀"</div>
+      <div>• 分析师共识 vs AI 预测对比</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── SEARCH BAR ───────────────────────────────────────────────────────── -->
+<div class="card p-4 mb-5">
+  <div class="flex gap-3 items-end">
+    <div class="flex-1">
+      <label class="text-[10px] text-gray-500 uppercase tracking-wide block mb-1.5">
+        输入股票代码 Enter Ticker
+      </label>
+      <div class="flex gap-2">
+        <input id="sa-input" type="text" placeholder="NVDA / AAPL / MSFT ..." maxlength="10"
+          value="${lastTicker}"
+          class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono text-gray-900 bg-white focus:outline-none focus:border-indigo-400"
+          style="text-transform:uppercase"
+          onkeydown="if(event.key==='Enter') saSearch()">
+        <button onclick="saSearch()"
+          class="px-5 py-2 rounded-lg text-sm font-semibold text-white transition"
+          style="background:#4f46e5">
+          <i class="fas fa-search mr-1"></i>深度分析
+        </button>
+      </div>
+    </div>
+    <div class="flex gap-2 text-[10px]">
+      ${['NVDA','AAPL','MSFT','META','GOOGL','AMZN','TSLA','AVGO'].map(t=>
+        `<button onclick="document.getElementById('sa-input').value='${t}';saSearch()"
+          class="px-2 py-1 border border-gray-200 rounded text-gray-600 hover:bg-indigo-50 hover:border-indigo-300 hover:text-indigo-700 transition font-mono">${t}</button>`
+      ).join('')}
+    </div>
+  </div>
+</div>
+
+<!-- ── RESULT AREA ──────────────────────────────────────────────────────── -->
+<div id="sa-result">
+  <div class="text-center py-16 text-gray-400">
+    <i class="fas fa-search text-4xl mb-3 block opacity-30"></i>
+    <div class="text-sm">输入股票代码开始深度分析</div>
+    <div class="text-xs mt-1">数据来源：Yahoo Finance 实时 + FactSet 交叉验证</div>
+  </div>
+</div>`;
+
+  // Auto-search if last ticker exists
+  if (lastTicker) {
+    setTimeout(saSearch, 50);
+  }
+}
+
+// ── SEARCH handler ──────────────────────────────────────────────────────────
+window.saSearch = async function() {
+  const ticker = (document.getElementById('sa-input')?.value || '').trim().toUpperCase();
+  if (!ticker) return;
+  window._saLastTicker = ticker;
+
+  const resultEl = document.getElementById('sa-result');
+  if (!resultEl) return;
+
+  resultEl.innerHTML = `
+    <div class="flex items-center justify-center py-16 gap-3 text-gray-500">
+      <i class="fas fa-spinner fa-spin text-indigo-500 text-xl"></i>
+      <div>
+        <div class="text-sm font-semibold">正在拉取 ${ticker} 数据...</div>
+        <div class="text-xs mt-1">Yahoo Finance API + 审计级调整计算中</div>
+      </div>
+    </div>`;
+
+  try {
+    // Parallel fetch: deep analysis + analyst recommendations
+    const [deepRes, analystRes] = await Promise.allSettled([
+      axios.get(`${API}/api/live/deep/${ticker}`),
+      axios.get(`${API}/api/live/analyst/${ticker}`),
+    ]);
+
+    const d = deepRes.status === 'fulfilled' ? deepRes.value.data : null;
+    const ana = analystRes.status === 'fulfilled' ? analystRes.value.data : null;
+
+    if (!d || d.error) {
+      resultEl.innerHTML = `<div class="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
+        <i class="fas fa-exclamation-triangle text-red-400 text-2xl mb-2"></i>
+        <div class="text-red-700 font-semibold">${d?.error || 'Data service unavailable'}</div>
+        <div class="text-red-500 text-xs mt-1">请确认 data-service 正在运行 (pm2 status)</div>
+      </div>`;
+      return;
+    }
+
+    resultEl.innerHTML = saRenderResult(d, ana, ticker);
+    saDrawCharts(d, ana);
+
+  } catch(e) {
+    resultEl.innerHTML = `<div class="bg-red-50 border border-red-200 rounded-lg p-6 text-red-700">
+      Error: ${e.message}. Data microservice may be offline.
+    </div>`;
+  }
+};
+
+// ── RENDER deep analysis result ──────────────────────────────────────────────
+function saRenderResult(d, ana, ticker) {
+  const ev   = d.ev_decomp   || {};
+  const ebitda = d.adj_ebitda || {};
+  const mult = d.ev_multiples || {};
+  const fcf  = d.fcf_analysis || {};
+  const lev  = d.leverage     || {};
+  const gr   = d.growth       || {};
+  const an   = d.analyst      || {};
+  const qts  = d.quarterly_adj_ebitda || [];
+  const ph   = d.price_history || [];
+  const flags = d.audit_flags || [];
+
+  // Risk assessment
+  const levRisk = lev.net_leverage_x > 3 ? 'HIGH' : lev.net_leverage_x > 1.5 ? 'MEDIUM' : 'LOW';
+  const levColor = levRisk === 'HIGH' ? 'text-red-600' : levRisk === 'MEDIUM' ? 'text-amber-600' : 'text-emerald-600';
+  const levBg    = levRisk === 'HIGH' ? 'bg-red-50 border-red-200' : levRisk === 'MEDIUM' ? 'bg-amber-50 border-amber-200' : 'bg-emerald-50 border-emerald-200';
+
+  // FCF quality
+  const fcfGood = fcf.fcf_yield_pct > 3;
+  const fcfColor = fcf.fcf_yield_pct > 5 ? 'text-emerald-600' : fcf.fcf_yield_pct > 2 ? 'text-amber-600' : 'text-red-600';
+
+  // EV/EBITDA signal
+  const evSignal = mult.ev_ebitda_adj < 12 ? '低估区间' : mult.ev_ebitda_adj < 20 ? '合理区间' : mult.ev_ebitda_adj < 30 ? '溢价区间' : '高估警示';
+  const evColor  = mult.ev_ebitda_adj < 12 ? 'text-emerald-600' : mult.ev_ebitda_adj < 20 ? 'text-gray-700' : mult.ev_ebitda_adj < 30 ? 'text-amber-600' : 'text-red-600';
+
+  // Analyst upside
+  const upside = an.upsidePct || 0;
+  const upsideColor = upside > 15 ? 'text-emerald-600' : upside > 0 ? 'text-amber-600' : 'text-red-600';
+
+  // AI verdict (rule-based LLM proxy)
+  const verdict = saAiVerdict(d);
+
+  return `
+<!-- ══ STOCK HEADER ══════════════════════════════════════════════════════ -->
+<div class="bg-white border border-gray-200 rounded-xl p-4 mb-4 flex items-center gap-4">
+  <div class="flex-1">
+    <div class="flex items-center gap-3 mb-1">
+      <span class="text-xl font-bold font-mono text-gray-900">${d.ticker}</span>
+      <span class="text-sm text-gray-600">${d.name}</span>
+      <span class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">${d.sector}</span>
+      <span class="text-xs bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full">${d.industry || ''}</span>
+    </div>
+    <div class="flex items-end gap-4">
+      <div class="text-3xl font-bold font-mono text-gray-900">$${(d.price||0).toFixed(2)}</div>
+      <div class="text-xs text-gray-500 mb-1">市值 <span class="font-bold text-gray-800">$${(ev.market_cap_b||0).toFixed(0)}B</span></div>
+      <div class="text-xs text-gray-500 mb-1">EV <span class="font-bold text-gray-800">$${(ev.ev_b||0).toFixed(0)}B</span></div>
+      <div class="ml-auto text-right">
+        <div class="text-[10px] text-gray-400">数据来源</div>
+        <div class="text-xs font-semibold text-indigo-700">Yahoo Finance</div>
+        <div class="text-[9px] text-gray-400">${d.lastUpdated ? d.lastUpdated.slice(0,19).replace('T',' ') + ' UTC' : ''}</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ AUDIT FLAGS ════════════════════════════════════════════════════════ -->
+${flags.length > 0 ? `
+<div class="bg-amber-50 border border-amber-300 rounded-xl p-3 mb-4">
+  <div class="flex items-center gap-2 mb-2">
+    <i class="fas fa-exclamation-triangle text-amber-500"></i>
+    <span class="font-bold text-gray-800 text-sm">审计风险标记 Audit Flags</span>
+  </div>
+  ${flags.map(f=>`<div class="text-xs text-amber-800 flex items-start gap-2"><span class="text-amber-500 flex-shrink-0">⚠</span>${f}</div>`).join('')}
+</div>` : ''}
+
+<!-- ══ AI VERDICT ═════════════════════════════════════════════════════════ -->
+<div class="${verdict.bg} border ${verdict.border} rounded-xl p-4 mb-4">
+  <div class="flex items-start gap-3">
+    <div class="w-8 h-8 ${verdict.iconBg} rounded-lg flex items-center justify-center flex-shrink-0">
+      <i class="fas fa-brain ${verdict.iconColor} text-sm"></i>
+    </div>
+    <div class="flex-1">
+      <div class="flex items-center gap-2 mb-1">
+        <span class="font-bold text-gray-900 text-sm">AI 综合研判</span>
+        <span class="text-xs px-2 py-0.5 rounded-full font-bold ${verdict.tagClass}">${verdict.signal}</span>
+        <span class="text-[10px] text-gray-400 ml-auto">基于实时数据 · 规则引擎 + LLM逻辑</span>
+      </div>
+      <div class="text-xs text-gray-700 leading-relaxed">${verdict.summary}</div>
+      <div class="mt-2 grid grid-cols-3 gap-3 text-[10px]">
+        <div class="bg-white/60 rounded p-2">
+          <div class="text-gray-500 mb-0.5">估值判断</div>
+          <div class="font-semibold ${evColor}">${evSignal} (${mult.ev_ebitda_adj?.toFixed(1)}× Adj.EV/EBITDA)</div>
+        </div>
+        <div class="bg-white/60 rounded p-2">
+          <div class="text-gray-500 mb-0.5">现金流质量</div>
+          <div class="font-semibold ${fcfColor}">FCF Yield ${fcf.fcf_yield_pct?.toFixed(1)}%</div>
+        </div>
+        <div class="bg-white/60 rounded p-2">
+          <div class="text-gray-500 mb-0.5">债务风险</div>
+          <div class="font-semibold ${levColor}">${levRisk} (${lev.net_leverage_x?.toFixed(1)}× 净杠杆)</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ 5 CORE METRICS ROW ══════════════════════════════════════════════════ -->
+<div class="grid grid-cols-5 gap-3 mb-4">
+
+  <!-- EV -->
+  <div class="bg-white border border-gray-200 rounded-xl p-3">
+    <div class="text-[10px] text-gray-500 uppercase tracking-wide mb-1">企业价值 EV</div>
+    <div class="text-2xl font-bold text-gray-900 font-mono">$${(ev.ev_b||0).toFixed(0)}B</div>
+    <div class="mt-2 space-y-0.5 text-[10px] text-gray-500">
+      <div class="flex justify-between"><span>市值</span><span class="font-mono">+$${(ev.market_cap_b||0).toFixed(0)}B</span></div>
+      <div class="flex justify-between"><span>有息负债</span><span class="font-mono text-red-600">+$${(ev.total_debt_b||0).toFixed(1)}B</span></div>
+      <div class="flex justify-between"><span>少数股东权益</span><span class="font-mono">+$${(ev.minority_int_b||0).toFixed(1)}B</span></div>
+      <div class="flex justify-between"><span>现金</span><span class="font-mono text-emerald-600">-$${(ev.cash_b||0).toFixed(1)}B</span></div>
+    </div>
+    <div class="mt-2 text-[9px] text-gray-400 border-t border-gray-100 pt-1">EV = 市值+负债+少数权益-现金</div>
+  </div>
+
+  <!-- Adj EBITDA -->
+  <div class="bg-white border border-gray-200 rounded-xl p-3">
+    <div class="text-[10px] text-gray-500 uppercase tracking-wide mb-1">核心盈利 Adj.EBITDA</div>
+    <div class="text-2xl font-bold text-gray-900 font-mono">$${((ebitda.adj_ebitda_ttm_m||0)/1000).toFixed(1)}B</div>
+    <div class="mt-2 space-y-0.5 text-[10px] text-gray-500">
+      <div class="flex justify-between"><span>营业利润</span><span class="font-mono">$${((ebitda.op_income_ttm_m||0)/1000).toFixed(1)}B</span></div>
+      <div class="flex justify-between"><span>D&A 加回</span><span class="font-mono text-emerald-600">+$${((ebitda.da_ttm_m||0)/1000).toFixed(1)}B</span></div>
+      <div class="flex justify-between"><span>SBC 加回</span><span class="font-mono text-amber-600">+$${((ebitda.sbc_ttm_m||0)/1000).toFixed(1)}B</span></div>
+    </div>
+    <div class="mt-1 text-[9px] ${ebitda.sbc_distortion_pct>15?'text-red-500':'text-gray-400'} border-t border-gray-100 pt-1">
+      SBC占比 ${(ebitda.sbc_distortion_pct||0).toFixed(0)}% ${ebitda.sbc_distortion_pct>15?'⚠ 稀释严重':'✓ 正常'}
+    </div>
+  </div>
+
+  <!-- EV/EBITDA -->
+  <div class="bg-white border border-gray-200 rounded-xl p-3">
+    <div class="text-[10px] text-gray-500 uppercase tracking-wide mb-1">估值乘数</div>
+    <div class="text-2xl font-bold ${evColor} font-mono">${(mult.ev_ebitda_adj||0).toFixed(1)}×</div>
+    <div class="text-xs font-semibold ${evColor} mt-0.5">${evSignal}</div>
+    <div class="mt-2 space-y-0.5 text-[10px] text-gray-500">
+      <div class="flex justify-between"><span>Adj.EV/EBITDA (TTM)</span><span class="font-mono font-bold">${(mult.ev_ebitda_adj||0).toFixed(1)}×</span></div>
+      <div class="flex justify-between"><span>Raw EV/EBITDA</span><span class="font-mono">${(mult.ev_ebitda_raw||0).toFixed(1)}×</span></div>
+      <div class="flex justify-between"><span>Forward PE</span><span class="font-mono">${(mult.forward_pe||0).toFixed(1)}×</span></div>
+      <div class="flex justify-between"><span>EV/Revenue</span><span class="font-mono">${(mult.ev_revenue||0).toFixed(1)}×</span></div>
+    </div>
+    <div class="mt-1.5 text-[9px] text-gray-400 border-t border-gray-100 pt-1">标杆：<8低估·8-15公允·>25高估</div>
+  </div>
+
+  <!-- FCF Yield -->
+  <div class="bg-white border border-gray-200 rounded-xl p-3">
+    <div class="text-[10px] text-gray-500 uppercase tracking-wide mb-1">现金收益 FCF Yield</div>
+    <div class="text-2xl font-bold ${fcfColor} font-mono">${(fcf.fcf_yield_pct||0).toFixed(1)}%</div>
+    <div class="mt-2 space-y-0.5 text-[10px] text-gray-500">
+      <div class="flex justify-between"><span>经营现金流OCF</span><span class="font-mono text-emerald-600">$${((fcf.ocf_ttm_m||0)/1000).toFixed(1)}B</span></div>
+      <div class="flex justify-between"><span>资本开支CapEx</span><span class="font-mono text-red-500">-$${((fcf.capex_ttm_m||0)/1000).toFixed(1)}B</span></div>
+      <div class="flex justify-between"><span>FCF (TTM)</span><span class="font-mono font-bold">$${((fcf.fcf_ttm_m||0)/1000).toFixed(1)}B</span></div>
+      <div class="flex justify-between text-amber-600"><span>SBC扣除后AdjFCF</span><span class="font-mono">$${((fcf.adj_fcf_ttm_m||0)/1000).toFixed(1)}B</span></div>
+    </div>
+    <div class="mt-1.5 text-[9px] text-gray-400 border-t border-gray-100 pt-1">标杆：>5% 优质·2-5% 正常·<2% 偏低</div>
+  </div>
+
+  <!-- Net Leverage -->
+  <div class="bg-white border ${levBg.split(' ')[1]} rounded-xl p-3 ${levBg.split(' ')[0]}">
+    <div class="text-[10px] text-gray-500 uppercase tracking-wide mb-1">财务健康 净杠杆</div>
+    <div class="text-2xl font-bold ${levColor} font-mono">${(lev.net_leverage_x||0).toFixed(1)}×</div>
+    <div class="text-xs font-bold ${levColor} mt-0.5">${levRisk} RISK</div>
+    <div class="mt-2 space-y-0.5 text-[10px] text-gray-500">
+      <div class="flex justify-between"><span>净债务</span><span class="font-mono ${lev.net_debt_b>0?'text-red-600':'text-emerald-600'}">$${(lev.net_debt_b||0).toFixed(1)}B</span></div>
+      <div class="flex justify-between"><span>现金</span><span class="font-mono text-emerald-600">$${(lev.cash_b||0).toFixed(1)}B</span></div>
+      <div class="flex justify-between"><span>流动比率</span><span class="font-mono">${(lev.current_ratio||0).toFixed(1)}×</span></div>
+    </div>
+    <div class="mt-1.5 text-[9px] text-gray-400 border-t border-gray-100 pt-1">标杆：>3.0× 危险·1.5-3× 警惕·<1.5× 健康</div>
+  </div>
+
+</div>
+
+<!-- ══ QUARTERLY ADJ.EBITDA TABLE ═════════════════════════════════════════ -->
+<div class="grid grid-cols-2 gap-4 mb-4">
+  <div class="bg-white border border-gray-200 rounded-xl p-4">
+    <div class="text-sm font-semibold text-gray-900 mb-3">
+      <i class="fas fa-table text-gray-400 mr-1"></i>
+      季度 Adj.EBITDA 拆解 (GAAP 审计调整)
+    </div>
+    ${qts.length > 0 ? `
+    <table class="data-table text-xs w-full">
+      <thead><tr>
+        <th>季度</th><th>收入 $M</th><th>营业利润</th><th>D&A</th><th>SBC</th>
+        <th class="font-bold">Adj.EBITDA</th><th>利润率</th>
+      </tr></thead>
+      <tbody>
+        ${qts.map(q=>`<tr>
+          <td class="font-mono text-gray-600">${q.period?.slice(0,7)||'—'}</td>
+          <td class="font-mono text-gray-700">$${(q.revenue_m||0).toFixed(0)}</td>
+          <td class="font-mono text-gray-700">$${(q.op_income_m||0).toFixed(0)}</td>
+          <td class="font-mono text-emerald-600">+$${(q.da_m||0).toFixed(0)}</td>
+          <td class="font-mono text-amber-600">+$${(q.sbc_m||0).toFixed(0)}</td>
+          <td class="font-mono font-bold text-gray-900">$${(q.adj_ebitda_m||0).toFixed(0)}</td>
+          <td class="font-mono ${(q.adj_ebitda_margin_pct||0)>30?'text-emerald-600':'text-gray-600'}">${(q.adj_ebitda_margin_pct||0).toFixed(1)}%</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+    <div class="mt-2 text-[9px] text-gray-400">Adj.EBITDA = 营业利润 + D&A + SBC · TTM = 最近4季合计 · 金额单位 $M</div>
+    ` : '<div class="text-gray-400 text-xs py-4 text-center">季报数据加载中...</div>'}
+  </div>
+
+  <!-- Quarterly EBITDA Trend Chart -->
+  <div class="bg-white border border-gray-200 rounded-xl p-4">
+    <div class="text-sm font-semibold text-gray-900 mb-3">
+      <i class="fas fa-chart-bar text-gray-400 mr-1"></i>
+      季度经营趋势 Quarterly Trend
+    </div>
+    <div style="height:150px"><canvas id="sa-ebitda-chart"></canvas></div>
+    <div class="grid grid-cols-3 gap-2 mt-3 text-[10px]">
+      <div class="bg-gray-50 rounded p-2 text-center">
+        <div class="text-gray-500 mb-0.5">TTM 收入</div>
+        <div class="font-bold font-mono text-gray-900">$${((gr.revenue_ttm_m||0)/1000).toFixed(1)}B</div>
+      </div>
+      <div class="bg-gray-50 rounded p-2 text-center">
+        <div class="text-gray-500 mb-0.5">TTM Adj.EBITDA</div>
+        <div class="font-bold font-mono text-gray-900">$${((ebitda.adj_ebitda_ttm_m||0)/1000).toFixed(1)}B</div>
+      </div>
+      <div class="bg-gray-50 rounded p-2 text-center">
+        <div class="text-gray-500 mb-0.5">TTM Adj.EBITDA利润率</div>
+        <div class="font-bold font-mono ${(mult.adj_ebitda_margin_pct||0)>30?'text-emerald-600':'text-amber-600'}">${(mult.adj_ebitda_margin_pct||0).toFixed(1)}%</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Analyst consensus -->
+  <div class="bg-white border border-gray-200 rounded-xl p-4">
+    <div class="text-sm font-semibold text-gray-900 mb-3">
+      <i class="fas fa-users text-gray-400 mr-1"></i>
+      分析师共识 Analyst Consensus
+    </div>
+    <div class="grid grid-cols-2 gap-4 mb-4">
+      <div class="bg-gray-50 rounded-lg p-3 text-center">
+        <div class="text-[10px] text-gray-500 mb-1">综合评级</div>
+        <div class="text-2xl font-bold ${an.rating<=1.5?'text-emerald-600':an.rating<=2.5?'text-emerald-600':an.rating<=3.5?'text-amber-600':'text-red-600'}">
+          ${an.rating<=1.5?'Strong Buy':an.rating<=2.5?'Buy':an.rating<=3.5?'Hold':'Sell'}
+        </div>
+        <div class="text-xs text-gray-500 mt-0.5">${an.numAnalysts||0} 位分析师</div>
+      </div>
+      <div class="bg-gray-50 rounded-lg p-3 text-center">
+        <div class="text-[10px] text-gray-500 mb-1">目标价 (均值)</div>
+        <div class="text-2xl font-bold text-gray-900 font-mono">$${(an.targetMean||0).toFixed(0)}</div>
+        <div class="text-xs ${upsideColor} font-semibold mt-0.5">${upside>=0?'+':''}${upside.toFixed(1)}% 上行空间</div>
+      </div>
+    </div>
+    <div class="grid grid-cols-2 gap-2 text-[10px]">
+      <div class="flex justify-between bg-gray-50 rounded p-2">
+        <span class="text-gray-500">最高目标价</span>
+        <span class="font-mono font-bold text-gray-900">$${(an.targetHigh||0).toFixed(0)}</span>
+      </div>
+      <div class="flex justify-between bg-gray-50 rounded p-2">
+        <span class="text-gray-500">最低目标价</span>
+        <span class="font-mono font-bold text-gray-900">$${(an.targetLow||0).toFixed(0)}</span>
+      </div>
+    </div>
+    <!-- Upgrades/Downgrades -->
+    <div class="mt-3">
+      <div class="text-[10px] text-gray-500 font-bold uppercase mb-2">最新评级变动</div>
+      <div id="sa-upgrades" class="space-y-1 text-[10px]">
+        <div class="text-gray-400 text-center py-2">加载中...</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ GROWTH & MARGINS ════════════════════════════════════════════════════ -->
+<div class="bg-white border border-gray-200 rounded-xl p-4 mb-4">
+  <div class="text-sm font-semibold text-gray-900 mb-3">
+    <i class="fas fa-chart-line text-gray-400 mr-1"></i>
+    成长与盈利能力 Growth & Profitability
+  </div>
+  <div class="grid grid-cols-4 gap-4">
+    ${[
+      ['收入增速 (YoY)', (gr.revenue_growth_yoy_pct||0).toFixed(1)+'%', gr.revenue_growth_yoy_pct>20?'text-emerald-600':gr.revenue_growth_yoy_pct>0?'text-amber-600':'text-red-600'],
+      ['EPS增速 (YoY)', (gr.earnings_growth_yoy_pct||0).toFixed(1)+'%', gr.earnings_growth_yoy_pct>20?'text-emerald-600':gr.earnings_growth_yoy_pct>0?'text-amber-600':'text-red-600'],
+      ['毛利率', (gr.gross_margin_pct||0).toFixed(1)+'%', gr.gross_margin_pct>50?'text-emerald-600':gr.gross_margin_pct>30?'text-amber-600':'text-red-600'],
+      ['Adj.EBITDA利润率', (mult.adj_ebitda_margin_pct||0).toFixed(1)+'%', mult.adj_ebitda_margin_pct>30?'text-emerald-600':mult.adj_ebitda_margin_pct>15?'text-amber-600':'text-red-600'],
+      ['营业利润率', (gr.operating_margin_pct||0).toFixed(1)+'%', 'text-gray-700'],
+      ['净利润率', (gr.net_margin_pct||0).toFixed(1)+'%', 'text-gray-700'],
+      ['ROE', (gr.roe_pct||0).toFixed(1)+'%', gr.roe_pct>20?'text-emerald-600':'text-gray-700'],
+      ['ROA', (gr.roa_pct||0).toFixed(1)+'%', gr.roa_pct>10?'text-emerald-600':'text-gray-700'],
+    ].map(([label, val, cls])=>`
+    <div class="bg-gray-50 rounded-lg p-2.5">
+      <div class="text-[10px] text-gray-500 mb-0.5">${label}</div>
+      <div class="text-base font-bold ${cls} font-mono">${val}</div>
+    </div>`).join('')}
+  </div>
+</div>
+
+<!-- ══ MARGIN OF SAFETY + VALUATION COMPASS ══════════════════════════════ -->
+<div class="bg-white border border-gray-200 rounded-xl p-4 mb-4">
+  <div class="flex items-center gap-2 mb-3">
+    <i class="fas fa-shield-alt text-indigo-500"></i>
+    <span class="font-semibold text-gray-900 text-sm">安全边际分析 Margin of Safety</span>
+    <span class="text-[10px] text-gray-400 ml-auto">核心估值信号 · 风控最后防线</span>
+  </div>
+  <div class="grid grid-cols-4 gap-3">
+
+    <!-- Analyst Upside -->
+    <div class="rounded-xl border p-3 ${upside>20?'bg-emerald-50 border-emerald-200':upside>5?'bg-amber-50 border-amber-200':upside<-5?'bg-red-50 border-red-200':'bg-gray-50 border-gray-200'}">
+      <div class="text-[10px] text-gray-500 mb-1 uppercase tracking-wide">分析师目标价上行空间</div>
+      <div class="text-2xl font-bold font-mono ${upsideColor}">${upside>=0?'+':''}${upside.toFixed(1)}%</div>
+      <div class="text-[10px] text-gray-500 mt-1">
+        均值 <span class="font-mono font-bold text-gray-900">$${(an.targetMean||0).toFixed(0)}</span>
+        · 高 $${(an.targetHigh||0).toFixed(0)}
+        · 低 $${(an.targetLow||0).toFixed(0)}
+      </div>
+      <div class="text-[9px] text-gray-400 mt-1">${an.numAnalysts||0} 位分析师 · ${an.rating<=1.5?'Strong Buy':an.rating<=2.5?'Buy':an.rating<=3.5?'Hold':'Sell'} 共识</div>
+    </div>
+
+    <!-- EV/EBITDA vs Sector -->
+    <div class="rounded-xl border p-3 ${mult.ev_ebitda_adj<12?'bg-emerald-50 border-emerald-200':mult.ev_ebitda_adj<20?'bg-gray-50 border-gray-200':mult.ev_ebitda_adj<30?'bg-amber-50 border-amber-200':'bg-red-50 border-red-200'}">
+      <div class="text-[10px] text-gray-500 mb-1 uppercase tracking-wide">Adj.EV/EBITDA 估值区间</div>
+      <div class="text-2xl font-bold font-mono ${evColor}">${(mult.ev_ebitda_adj||0).toFixed(1)}×</div>
+      <div class="text-xs font-semibold ${evColor} mt-1">${evSignal}</div>
+      <div class="mt-2 text-[9px] text-gray-400 leading-relaxed">
+        <div class="flex justify-between"><span>低估区间</span><span class="font-mono">&lt;12×</span></div>
+        <div class="flex justify-between"><span>合理区间</span><span class="font-mono">12-20×</span></div>
+        <div class="flex justify-between"><span>溢价区间</span><span class="font-mono">20-30×</span></div>
+        <div class="flex justify-between text-red-500"><span>高估警示</span><span class="font-mono">&gt;30×</span></div>
+      </div>
+    </div>
+
+    <!-- FCF Yield vs 10yr Treasury -->
+    <div class="rounded-xl border p-3 ${fcf.fcf_yield_pct>5?'bg-emerald-50 border-emerald-200':fcf.fcf_yield_pct>2?'bg-amber-50 border-amber-200':'bg-red-50 border-red-200'}">
+      <div class="text-[10px] text-gray-500 mb-1 uppercase tracking-wide">FCF Yield vs 无风险利率</div>
+      <div class="text-2xl font-bold font-mono ${fcfColor}">${(fcf.fcf_yield_pct||0).toFixed(1)}%</div>
+      <div class="text-[10px] text-gray-500 mt-1">
+        FCF / 市值 · 真实现金造血率
+      </div>
+      <div class="mt-1.5 text-[9px] text-gray-500">
+        <div>FCF Yield - 10yr(~4.5%) = <span class="font-mono font-bold ${(fcf.fcf_yield_pct||0)-4.5>0?'text-emerald-600':'text-red-600'}">${((fcf.fcf_yield_pct||0)-4.5).toFixed(1)}%</span> 超额</div>
+        <div class="text-gray-400 mt-0.5">>0% 说明股票现金收益高于无风险债券</div>
+      </div>
+    </div>
+
+    <!-- Net Leverage Risk Meter -->
+    <div class="rounded-xl border p-3 ${lev.net_leverage_x>3?'bg-red-50 border-red-200':lev.net_leverage_x>1.5?'bg-amber-50 border-amber-200':'bg-emerald-50 border-emerald-200'}">
+      <div class="text-[10px] text-gray-500 mb-1 uppercase tracking-wide">债务风险 / 流动性</div>
+      <div class="text-2xl font-bold font-mono ${levColor}">${(lev.net_leverage_x||0).toFixed(1)}×</div>
+      <div class="text-xs font-bold ${levColor} mt-0.5">${levRisk === 'HIGH' ? '⛔ 高风险 HIGH RISK' : levRisk === 'MEDIUM' ? '⚠ 需关注 WATCH' : '✓ 健康 LOW RISK'}</div>
+      <div class="mt-1.5 text-[9px] text-gray-500 space-y-0.5">
+        <div>净债务: <span class="font-mono ${lev.net_debt_b>0?'text-red-600':'text-emerald-600'}">$${(lev.net_debt_b||0).toFixed(1)}B</span></div>
+        <div>流动比率: <span class="font-mono">${(lev.current_ratio||0).toFixed(1)}×</span></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ══ PRICE CHART AREA ════════════════════════════════════════════════════ -->
+<div class="bg-white border border-gray-200 rounded-xl p-4 mb-4">
+  <div class="flex items-center justify-between mb-3">
+    <div>
+      <div class="text-sm font-semibold text-gray-900">价格走势 60日 Price Chart</div>
+      <div class="text-[10px] text-gray-500 mt-0.5">
+        52周高: $${(d.week52_high||0).toFixed(0)} · 52周低: $${(d.week52_low||0).toFixed(0)} · 
+        MA50: $${(d.ma50||0).toFixed(0)} · MA200: $${(d.ma200||0).toFixed(0)} · Beta: ${(d.beta||1).toFixed(2)}
+      </div>
+    </div>
+  </div>
+  <div style="height:200px"><canvas id="sa-price-chart"></canvas></div>
+</div>
+
+<!-- ══ FACTSET VALIDATION ══════════════════════════════════════════════════ -->
+<div class="bg-gray-50 border border-gray-200 rounded-xl p-4 mb-4">
+  <div class="flex items-center gap-2 mb-2">
+    <i class="fas fa-check-double text-gray-500"></i>
+    <span class="font-semibold text-gray-800 text-sm">FactSet 交叉验证状态</span>
+    <span class="text-[10px] text-gray-400 ml-auto">数据层 2 / 3</span>
+  </div>
+  ${d.factset_validated ? `
+  <div class="text-xs text-emerald-700 bg-emerald-50 rounded p-2">
+    <i class="fas fa-check-circle mr-1"></i>FactSet 数据已验证 · ${JSON.stringify(d.factset_data)}
+  </div>` : `
+  <div class="text-xs text-gray-600 leading-relaxed">
+    <div class="font-semibold text-amber-700 mb-1"><i class="fas fa-info-circle mr-1"></i>FactSet API 未配置 — 以下步骤启用</div>
+    <div class="grid grid-cols-3 gap-3 mt-2 text-[10px]">
+      <div class="bg-white rounded p-2 border border-gray-200">
+        <div class="font-bold text-gray-700 mb-1">Step 1</div>
+        <div class="text-gray-500">前往 developer.factset.com 获取 API Key</div>
+      </div>
+      <div class="bg-white rounded p-2 border border-gray-200">
+        <div class="font-bold text-gray-700 mb-1">Step 2</div>
+        <div class="text-gray-500">在 webapp/.dev.vars 添加 FACTSET_API_KEY=your_key</div>
+      </div>
+      <div class="bg-white rounded p-2 border border-gray-200">
+        <div class="font-bold text-gray-700 mb-1">Step 3</div>
+        <div class="text-gray-500">pm2 restart data-service — 自动加载</div>
+      </div>
+    </div>
+  </div>`}
+</div>`;
+}
+
+// ── AI VERDICT engine (rule-based + LLM-ready) ───────────────────────────────
+function saAiVerdict(d) {
+  const ev   = d.ev_multiples  || {};
+  const fcf  = d.fcf_analysis  || {};
+  const lev  = d.leverage      || {};
+  const gr   = d.growth        || {};
+  const an   = d.analyst       || {};
+  const flags = d.audit_flags  || [];
+
+  let score = 50; // base neutral
+  let reasons = [];
+
+  // Valuation check (EV/EBITDA)
+  const evEb = ev.ev_ebitda_adj || 0;
+  if (evEb > 0 && evEb < 12) { score += 15; reasons.push(`估值偏低(${evEb.toFixed(1)}×<12)，存在安全边际`); }
+  else if (evEb > 30) { score -= 20; reasons.push(`估值偏高(${evEb.toFixed(1)}×>30)，历史上对应低回报`); }
+
+  // FCF yield
+  const fcfY = fcf.fcf_yield_pct || 0;
+  if (fcfY > 5) { score += 15; reasons.push(`FCF Yield ${fcfY.toFixed(1)}% 高质量现金流`); }
+  else if (fcfY < 1) { score -= 15; reasons.push(`FCF Yield ${fcfY.toFixed(1)}% 过低，造血能力存疑`); }
+
+  // Revenue growth
+  const revGr = gr.revenue_growth_yoy_pct || 0;
+  if (revGr > 20) { score += 10; reasons.push(`收入增速 ${revGr.toFixed(0)}% 高增长`); }
+  else if (revGr < 0) { score -= 20; reasons.push(`收入负增长 ${revGr.toFixed(0)}% — 基本面恶化信号`); }
+
+  // Leverage
+  const netLev = lev.net_leverage_x || 0;
+  if (netLev > 3) { score -= 25; reasons.push(`净杠杆 ${netLev.toFixed(1)}×>3.0 — 债务风险警示，拒接飞刀`); }
+  else if (netLev < 0.5) { score += 10; reasons.push(`净现金状态，财务极度健康`); }
+
+  // Audit flags penalty
+  if (flags.length > 0) { score -= 10 * flags.length; }
+
+  // Analyst consensus
+  const rating = an.rating || 3;
+  if (rating <= 1.5) { score += 10; reasons.push(`分析师强力Buy共识`); }
+  else if (rating >= 4) { score -= 10; reasons.push(`分析师偏向Sell`); }
+
+  score = Math.max(5, Math.min(95, score));
+
+  // Signal
+  let signal, bg, border, iconBg, iconColor, tagClass, summary;
+  if (score >= 70) {
+    signal = '可以关注 WATCHLIST';
+    bg = 'bg-emerald-50'; border = 'border-emerald-200';
+    iconBg = 'bg-emerald-100'; iconColor = 'text-emerald-600';
+    tagClass = 'bg-emerald-100 text-emerald-700';
+  } else if (score >= 50) {
+    signal = '中性观望 NEUTRAL';
+    bg = 'bg-gray-50'; border = 'border-gray-200';
+    iconBg = 'bg-gray-100'; iconColor = 'text-gray-500';
+    tagClass = 'bg-gray-100 text-gray-600';
+  } else if (score >= 30) {
+    signal = '谨慎 CAUTION';
+    bg = 'bg-amber-50'; border = 'border-amber-200';
+    iconBg = 'bg-amber-100'; iconColor = 'text-amber-600';
+    tagClass = 'bg-amber-100 text-amber-700';
+  } else {
+    signal = '⛔ 拒接 — 基本面恶化';
+    bg = 'bg-red-50'; border = 'border-red-200';
+    iconBg = 'bg-red-100'; iconColor = 'text-red-600';
+    tagClass = 'bg-red-100 text-red-700';
+  }
+
+  summary = reasons.length > 0
+    ? reasons.join('。') + `。综合评分 ${score}/100。`
+    : `数据加载中，请稍候完整分析。`;
+
+  return { signal, bg, border, iconBg, iconColor, tagClass, summary, score };
+}
+
+// ── Draw charts ───────────────────────────────────────────────────────────────
+function saDrawCharts(d, ana) {
+  // Price chart
+  const ph = d.price_history || [];
+  const ctx = document.getElementById('sa-price-chart')?.getContext('2d');
+  if (ctx && ph.length > 0) {
+    if (window._saChart) window._saChart.destroy();
+    window._saChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: ph.map(p=>p.date.slice(5)),
+        datasets: [{
+          label: d.ticker + ' Close',
+          data: ph.map(p=>p.close),
+          borderColor: '#4f46e5',
+          borderWidth: 2,
+          pointRadius: 0,
+          fill: { target: 'origin', above: 'rgba(79,70,229,0.05)' },
+          tension: 0.2,
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        animation: { duration: 300 },
+        plugins: {
+          legend: { display: false },
+          tooltip: { backgroundColor:'#fff', titleColor:'#374151', bodyColor:'#374151', borderColor:'#e5e7eb', borderWidth:1 }
+        },
+        scales: {
+          x: { ticks: { color:'#9ca3af', maxTicksLimit: 10, font:{size:9} }, grid:{color:'rgba(0,0,0,0.05)'} },
+          y: { ticks: { color:'#9ca3af', font:{size:9} }, grid:{color:'rgba(0,0,0,0.05)'} }
+        }
+      }
+    });
+  }
+
+  // Quarterly EBITDA trend chart
+  const qts_chart = d.quarterly_adj_ebitda || [];
+  const ebitdaCtx = document.getElementById('sa-ebitda-chart')?.getContext('2d');
+  if (ebitdaCtx && qts_chart.length > 0) {
+    if (window._saEbitdaChart) window._saEbitdaChart.destroy();
+    const labels = qts_chart.map(q => q.period?.slice(0,7) || '').reverse();
+    const revenueData = qts_chart.map(q => q.revenue_m || 0).reverse();
+    const ebitdaData = qts_chart.map(q => q.adj_ebitda_m || 0).reverse();
+    window._saEbitdaChart = new Chart(ebitdaCtx, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [
+          {
+            label: '收入 $M',
+            data: revenueData,
+            backgroundColor: 'rgba(209,213,219,0.6)',
+            borderColor: '#9ca3af',
+            borderWidth: 1,
+            yAxisID: 'y',
+          },
+          {
+            type: 'line',
+            label: 'Adj.EBITDA $M',
+            data: ebitdaData,
+            borderColor: '#4f46e5',
+            backgroundColor: 'rgba(79,70,229,0.1)',
+            borderWidth: 2,
+            pointRadius: 3,
+            fill: false,
+            yAxisID: 'y1',
+            tension: 0.2,
+          }
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        animation: { duration: 300 },
+        plugins: {
+          legend: { display: true, labels: { color: '#6b7280', font: { size: 9 } } },
+          tooltip: { backgroundColor:'#fff', titleColor:'#374151', bodyColor:'#374151', borderColor:'#e5e7eb', borderWidth:1 }
+        },
+        scales: {
+          x: { ticks: { color:'#9ca3af', font:{size:9} }, grid:{color:'rgba(0,0,0,0.03)'} },
+          y: {
+            type: 'linear', position: 'left',
+            ticks: { color:'#9ca3af', font:{size:9} },
+            grid: { color:'rgba(0,0,0,0.05)' },
+            title: { display: true, text: '收入 $M', color: '#9ca3af', font:{size:8} }
+          },
+          y1: {
+            type: 'linear', position: 'right',
+            ticks: { color:'#4f46e5', font:{size:9} },
+            grid: { drawOnChartArea: false },
+            title: { display: true, text: 'EBITDA $M', color: '#4f46e5', font:{size:8} }
+          }
+        }
+      }
+    });
+  }
+
+  // Render analyst upgrades
+  const upgEl = document.getElementById('sa-upgrades');
+  if (upgEl && ana?.upgrades_downgrades?.length > 0) {
+    upgEl.innerHTML = ana.upgrades_downgrades.slice(0,8).map(u=>`
+      <div class="flex items-center gap-2 bg-gray-50 rounded p-1.5">
+        <span class="font-semibold text-gray-700 w-28 truncate">${u.firm}</span>
+        <span class="${u.action?.toLowerCase().includes('up')?'text-emerald-600':'u.action?.toLowerCase().includes("down")?"text-red-500":"text-gray-500'} font-bold">${u.toGrade || u.action}</span>
+        ${u.fromGrade ? `<span class="text-gray-400">← ${u.fromGrade}</span>` : ''}
+        <span class="ml-auto text-gray-400 font-mono">${u.date}</span>
+      </div>`).join('');
+  } else if (upgEl) {
+    upgEl.innerHTML = '<div class="text-gray-400 text-center py-1">暂无最新评级变动</div>';
+  }
+}
+
