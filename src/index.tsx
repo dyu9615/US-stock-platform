@@ -632,7 +632,7 @@ app.get('/', (c) => {
 <div class="ml-60 min-h-screen" style="background:#f5f6fa">
   <!-- TOP BAR -->
   <div class="sticky top-0 z-40 px-6 py-3 flex items-center gap-4" style="background:rgba(255,255,255,0.95);backdrop-filter:blur(8px);border-bottom:1px solid #e2e4ec;box-shadow:0 1px 3px rgba(0,0,0,0.06)">
-    <div id="page-title" class="font-semibold text-base" style="color:#1e2440">总控台 — 机构市场监控</div>
+    <div id="page-title" class="font-semibold text-base" style="color:#1e2440">总控台 Dashboard — Institutional Market Monitor</div>
     <div class="ml-auto flex items-center gap-3">
       <div id="market-ticker" class="flex gap-4 text-xs"></div>
       <button onclick="refreshAll()" class="px-3 py-1.5 rounded-lg text-xs font-medium transition" style="background:#eff6ff;border:1px solid #bfdbfe;color:#2563eb">
@@ -653,7 +653,7 @@ app.get('/', (c) => {
 
 function navItems() {
   return [
-    { id: 'dashboard',   icon: 'fas fa-th-large',      label: '总控台',     badge: '' },
+    { id: 'dashboard',   icon: 'fas fa-th-large',      label: 'Dashboard', badge: '' },
     { id: 'datacenter',  icon: 'fas fa-database',       label: '数据中心',   badge: 'US' },
     { id: 'screener',    icon: 'fas fa-filter',         label: '五因子筛选', badge: 'AI' },
     { id: 'stockanalysis', icon: 'fas fa-microscope',    label: '个股深度', badge: 'LIVE' },

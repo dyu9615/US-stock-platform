@@ -31,12 +31,22 @@ def cache_get(key, ttl=900):
 def cache_set(key, val):
     _cache[key] = (val, time.time())
 
-# ── FactSet API key ───────────────────────────────────────────────────────────
-FACTSET_API_KEY = os.environ.get('FACTSET_API_KEY', '')
-FACTSET_BASE    = 'https://api.factset.com/content'
+# ── FactSet API credentials ──────────────────────────────────────────────────
+FACTSET_API_KEY    = os.environ.get('FACTSET_API_KEY', '')
+FACTSET_SERIAL     = os.environ.get('FACTSET_SERIAL', 'UNIV_MI-2185784')
+FACTSET_BASE       = 'https://api.factset.com/content'
 
 def factset_headers():
-    auth = base64.b64encode(f'{FACTSET_API_KEY}:APIKEY'.encode()).decode()
+    """
+    FactSet Basic Auth format (from FactSet SDK docs):
+      username = serialnumber  (e.g. UNIV_MI-2185784)
+      password = apikey        (from developer.factset.com)
+    The 403 response (vs 401) confirms serial is recognised.
+    Ensure the API key was generated at:
+      developer.factset.com → Applications → API Keys
+    """
+    credentials = f'{FACTSET_SERIAL}:{FACTSET_API_KEY}'
+    auth = base64.b64encode(credentials.encode()).decode()
     return {
         'Authorization': f'Basic {auth}',
         'Accept': 'application/json',
@@ -1588,9 +1598,10 @@ def _factset_enrich(base_data: dict, ticker: str, api_key: str) -> dict:
     import urllib.request
     import base64
 
-    # FactSet Open:FactSet API base
+    # FactSet Basic Auth: serial:apikey
     base_url = 'https://api.factset.com/content'
-    auth = base64.b64encode(f'{api_key}:'.encode()).decode()
+    credentials = f'{FACTSET_SERIAL}:{api_key}'
+    auth = base64.b64encode(credentials.encode()).decode()
     headers = {
         'Authorization': f'Basic {auth}',
         'Accept': 'application/json',
