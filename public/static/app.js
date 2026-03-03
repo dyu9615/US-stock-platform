@@ -17,8 +17,8 @@ setInterval(() => {
 
 // ── NAV ────────────────────────────────────────────────────────────────────
 const PAGE_TITLES = {
-  dashboard:   '总控台 — 机构市场监控',
-  datacenter:  '数据中心 — 机构底层数据',
+  dashboard:   '总控台 Dashboard — Institutional Market Monitor',
+  datacenter:  '数据中心 Data Center — 机构底层数据 Institutional',
   screener:    '五因子筛选 — 量化选股',
   strategies:  '策略管理 — 策略仓库',
   mlfinance:   '机器学习 — 信号引擎',
@@ -190,7 +190,7 @@ async function renderDashboard(el) {
   <div>
     <h2 class="text-xl font-bold text-gray-900 flex items-center gap-2">
       <i class="fas fa-satellite-dish" style="color:#0284c7"></i>
-      总控台 · 机构市场监控
+      总控台 · 机构市场监控 — Institutional Monitor
       <span class="text-xs font-normal ml-1" style="color:#9ca3af">${m.date}</span>
       ${m._liveSource ? '<span class="text-[9px] font-bold px-2 py-0.5 rounded-full animate-pulse" style="background:#dcfce7;color:#166534;border:1px solid #86efac"><i class="fas fa-circle" style="font-size:5px"></i> LIVE</span>' : ''}
     </h2>
@@ -211,9 +211,9 @@ async function renderDashboard(el) {
       </div>
     </div>
     <div>
-      <div class="text-xs uppercase tracking-wide font-semibold" style="color:#6b7280">综合恐慌指数</div>
+      <div class="text-xs uppercase tracking-wide font-semibold" style="color:#6b7280">Composite Panic Index</div>
       <div class="text-sm font-bold" style="color:${panicColor}">${m.panicLabel}</div>
-      <div class="text-[10px] mt-0.5" style="color:#9ca3af">0=平静 · 100=极度恐慌</div>
+      <div class="text-[10px] mt-0.5" style="color:#9ca3af">0=Calm · 100=Extreme Fear</div>
     </div>
   </div>
 </div>
@@ -225,7 +225,7 @@ async function renderDashboard(el) {
     <div>
       <div class="text-sm font-bold text-blue-800 mb-1">📌 关于本监控系统 — What Does This Monitor Do?</div>
       <div class="text-xs leading-relaxed text-blue-900 mb-2">
-        本仪表板是一个<b>宏观市场情绪与流动性监控系统</b>，综合追踪以下6大维度，帮助机构投资者识别市场压力状态、判断风险偏好方向：
+        This dashboard is a <b>Macro Sentiment & Liquidity Monitor</b>. It tracks 6 key dimensions to help institutional investors identify market stress and risk appetite direction:
       </div>
       <div class="grid grid-cols-2 lg:grid-cols-3 gap-2 text-xs">
         <div class="rounded-lg p-2" style="background:rgba(255,255,255,0.7);border:1px solid #bfdbfe">
@@ -590,7 +590,7 @@ async function renderDashboard(el) {
     <tbody>
     ${[
       ['VIX现货 VIX Spot', m.vix.toFixed(1), vixTSSig, 
-       '恐慌指数即期读数。<20=平静，20-30=警觉，>30=恐慌，>40=极端恐慌', 
+       'VIX spot reading. <20=Calm, 20-30=Alert, >30=Panic, >40=Extreme Panic', 
        'VIX>30考虑增加保护性Put；VIX>40历史上是买入时机', 'Yahoo Finance ^VIX'],
       ['VIX期限斜率 Term Slope', (m.vixTermStructure*100).toFixed(1)+'%', vixTSSig, 
        'Contango(正) = 远期溢价正常，市场平稳；Backwardation(负) = 近端恐惧溢价，极端信号',
@@ -599,19 +599,19 @@ async function renderDashboard(el) {
        '高收益债利差，衡量信用市场对违约风险的定价。历史均值约350bps',
        '>400bps减持高Beta；>800bps系统性危机信号', 'FRED BAMLH0A0HYM2'],
       ['市场宽度 Breadth', m.pctAbove200ma.toFixed(1)+'%', m.breadthSignal, 
-       'S&P 500中处于200日均线上方的股票比例。反映市场内在健康',
+       '% of S&P 500 stocks above 200DMA. Reflects market internal health',
        '<15%历史极端买入区（COVID低点3%）', 'StockCharts S5TH200X'],
       ['Put/Call比率', m.putCallRatio.toFixed(2)+'×', m.putCallSignal, 
        'CBOE股票期权仅Put/Call比。>1.1=恐惧(反向买入)，<0.7=贪婪(反向卖出)',
        '>1.5极端恐惧 = 强烈BTD信号', 'CBOE Equity P/C'],
       ['收益率曲线 10Y-2Y', (m.yieldCurve>0?'+':'')+m.yieldCurve+' bps', m.yieldCurveInverted?'warning':'normal', 
-       '10年与2年国债利差。倒挂(负值)自1970年起100%预测衰退，领先12-18个月',
+       '10Y minus 2Y Treasury spread. Inversion 100% recession predictor since 1970, leads 12-18 months',
        '倒挂→减配周期股，增配防御性资产', 'FRED DGS10/DGS2'],
       ['ERP', e.erp.toFixed(2)+'%', erpSig, 
-       '股票盈利收益率-10Y国债。衡量股票相对债券的超额回报补偿',
+       'Equity Earnings Yield minus 10Y Treasury. Measures equity risk premium vs bonds',
        '<1%高估预警，历史随后平均跌幅15-25%', 'FactSet共识/FRED'],
       ['SPX远期P/E', '21.8×', 'warning', 
-       '标普500未来12个月预期P/E。历史10年均值约17-18×，当前溢价约20%',
+       'S&P 500 forward 12-month P/E. 10Y historical avg ~17-18×, current premium ~20%',
        '>20×历史上对应未来3年年化收益率仅4-5%', 'FactSet NTM Estimates'],
     ].map(([ind,val,sig,meaning,impact,src])=>`
     <tr>
@@ -945,8 +945,8 @@ window.showMetricDict = function(key) {
 <p class="mt-2">数据来源：FRED DGS10 / DGS2</p>`
     },
     panic: {
-      title: '综合恐慌指数 Composite Panic Score',
-      body: `<p><b>什么是综合恐慌指数？</b><br>0–100的加权综合评分，整合VIX期限结构、HY OAS信用利差、市场宽度和Put/Call比率四个维度。</p>
+      title: 'Composite Panic Index Composite Panic Score',
+      body: `<p><b>什么是Composite Panic Index？</b><br>0–100的加权综合评分，整合VIX期限结构、HY OAS信用利差、市场宽度和Put/Call比率四个维度。</p>
 <p class="mt-2"><b>解读门槛：</b></p>
 <ul class="mt-1 space-y-1 list-disc pl-4">
   <li><b class="text-emerald-600">0–30</b>：市场平静，正常仓位</li>
@@ -1473,8 +1473,8 @@ window.showMetricDict = function(key) {
       <i class="fas fa-info-circle text-blue-400 mr-1"></i>
       <strong>取数口径：</strong>Adj.EBITDA = 营业利润 + D&A + SBC (已加回，非现金扭曲) ·
       FCF = OCF − CapEx − 资本化软件支出 ·
-      EV = 总市值 + 有息负债 + 少数股权 + 优先股 − 现金 ·
-      ${fundRes.data.gaapAdjustmentNote||'PIT-Compliant: data mapped to announcement date, not period-end.'}
+      EV = Market Cap + Interest-bearing Debt + Minority Interest + Preferred Stock − Cash ·
+      ${(fundRes.status === 'fulfilled' ? fundRes.value?.data?.gaapAdjustmentNote : null) || 'PIT-Compliant: data mapped to announcement date, not period-end.'}
     </div>
 
     <!-- Methodology table -->
@@ -1489,11 +1489,11 @@ window.showMetricDict = function(key) {
         </tr></thead>
         <tbody class="divide-y divide-[#1a2540]">
           ${[
-            ['企业价值 / EV','EV (Enterprise Value)','总市值 + 长期负债 + 短期负债 + 少数股权 + 优先股 − 现金','排除资本结构差异，还原收购整体业务的真实成本'],
-            ['核心盈利 / Core Earnings','Adjusted EBITDA','营业利润 + D&A + SBC (非现金，加回) → GAAP understates TMT by 15-25%','剔除SBC非现金扭曲，还原真实经营性现金产出能力'],
-            ['估值乘数 / Multiple','EV / EBITDA (TTM)','当前EV / 过去四季度 Adj.EBITDA总和 — 替代失真P/E','寻找真正被低估的优质资产，行业间横向可比'],
-            ['现金收益 / Cash Return','FCF Yield','(OCF − CapEx − Cap.Software) / 总市值 %','每投入$1能产生多少可自由支配现金 — 真实回报率'],
-            ['财务健康 / Leverage','净杠杆率','(有息负债 − 现金) / Adj.EBITDA — 危险线 &gt;3.0×','识别风险事件中可能违约的高危企业'],
+            ['企业价值 / EV','EV (Enterprise Value)','总市值 + 长期负债 + 短期负债 + 少数股权 + 优先股 − 现金','Normalize capital structure; reveal true acquisition cost of entire business'],
+            ['核心盈利 / Core Earnings','Adjusted EBITDA','营业利润 + D&A + SBC (非现金，加回) → GAAP understates TMT by 15-25%','Remove SBC non-cash distortion; reveal true operating cash generation'],
+            ['估值乘数 / Multiple','EV / EBITDA (TTM)','当前EV / 过去四季度 Adj.EBITDA总和 — 替代失真P/E','Find genuinely undervalued assets; cross-sector comparable'],
+            ['现金收益 / Cash Return','FCF Yield','(OCF − CapEx − Cap.Software) / 总市值 %','True cash return per $1 invested — real yield'],
+            ['财务健康 / Leverage','净杠杆率','(有息负债 − 现金) / Adj.EBITDA — 危险线 &gt;3.0×','Identify high-risk companies prone to default in stress events'],
           ].map(([dim,ind,logic,purpose])=>`
           <tr class="hover:bg-blue-50/40">
             <td class="py-2 px-2"><div class="text-white text-[11px] font-medium">${dim.split('/')[0].trim()}</div><div class="text-[9px] text-gray-500">${dim.split('/')[1]?.trim()}</div></td>
@@ -1562,7 +1562,7 @@ window.showMetricDict = function(key) {
     <!-- Underval signals -->
     ${stocks.filter(s=>s.evEbitdaPercentile<=20&&s.fcfYield>3).length>0?`
     <div class="border-t border-[#1e2d4a] pt-3">
-      <div class="text-[10px] font-bold text-emerald-400 uppercase mb-2">★ 低估信号 / Undervaluation Signals — EV/EBITDA ≤20th %ile · FCF Yield &gt;3%</div>
+      <div class="text-[10px] font-bold text-emerald-400 uppercase mb-2">★ Undervaluation Signals — EV/EBITDA ≤20th %ile · FCF Yield >3%</div>
       <div class="grid grid-cols-3 gap-2">
       ${stocks.filter(s=>s.evEbitdaPercentile<=20&&s.fcfYield>3).map(s=>`
         <div class="bg-emerald-900/10 border border-emerald-600/30 rounded-lg p-3">
@@ -1604,15 +1604,15 @@ window.showMetricDict = function(key) {
           </div>
           <div>
             <div class="text-xs font-bold text-emerald-300">Point-in-Time (PIT)</div>
-            <div class="text-[10px] text-gray-500">回测生命线</div>
+            <div class="text-[10px] text-gray-500">Backtesting Lifeline</div>
           </div>
           <span class="ml-auto text-[9px] bg-emerald-600 text-white px-1.5 py-0.5 rounded">✓ Active</span>
         </div>
         <div class="text-[10px] text-gray-400 leading-relaxed mb-2">
-          财报数据映射到<strong class="text-emerald-300">公告日</strong>，而非财务报告期末日。Q4 2023（12月31日）财报于 2024年2月15日发布，则该数据在回测中只能从 2024-02-15 起使用。
+          Financial data is mapped to the <strong class="text-emerald-300">announcement date</strong>, not the fiscal period end date. Q4 2023 (Dec 31) earnings released Feb 15, 2024 — only usable in backtests from 2024-02-15 onwards.
         </div>
         <div class="text-[10px] text-amber-300 bg-amber-900/20 rounded p-2">
-          ⚠ 违反PIT → 使用未来函数 → Sharpe 虚高 0.3–0.8
+          ⚠ Violating PIT → look-ahead bias → Sharpe inflated by 0.3–0.8
         </div>
         <div class="mt-2 text-[10px] text-gray-500">Reporting lag: 45–90 calendar days</div>
       </div>
@@ -1625,20 +1625,20 @@ window.showMetricDict = function(key) {
           </div>
           <div>
             <div class="text-xs font-bold text-blue-300">幸存者偏差 Survivorship</div>
-            <div class="text-[10px] text-gray-500">动态成分股追踪</div>
+            <div class="text-[10px] text-gray-500">Dynamic constituent tracking</div>
           </div>
           <span class="ml-auto text-[9px] bg-blue-600 text-white px-1.5 py-0.5 rounded">✓ Mitigated</span>
         </div>
         <div class="text-[10px] text-gray-400 leading-relaxed mb-2">
-          yfinance 仅返回当前500只成分股。回测10年必须维护包含<strong class="text-blue-300">已退市、被收购、破产</strong>股票的历史Ticker映射表。
+          yfinance only returns current 500 constituents. 10-year backtests must maintain historical ticker maps including <strong class="text-blue-300">delisted, acquired, and bankrupt</strong> stocks.
         </div>
         <div class="text-[10px] text-gray-500 leading-relaxed">
-          历史标普500成员: <span class="text-gray-900 font-bold">~1,847</span>只<br>
-          当前宇宙: <span class="text-gray-900 font-bold">500</span>只<br>
+          Historical S&P 500 members: <span class="text-gray-900 font-bold">~1,847</span><br>
+          Current universe: <span class="text-gray-900 font-bold">500</span><br>
           差异: <span class="text-amber-400 font-bold">1,347 delisted/M&A</span>
         </div>
         <div class="mt-2 text-[10px] text-amber-300 bg-amber-900/20 rounded p-2">
-          ⚠ 只用当前名单 → 幸存者偏差 → Alpha虚高
+          ⚠ Using current list only → survivorship bias → Alpha overstated
         </div>
       </div>
 
@@ -1650,17 +1650,17 @@ window.showMetricDict = function(key) {
           </div>
           <div>
             <div class="text-xs font-bold text-purple-300">GAAP 调整 Adjustments</div>
-            <div class="text-[10px] text-gray-500">还原真实盈利能力</div>
+            <div class="text-[10px] text-gray-500">Restore true earnings power</div>
           </div>
           <span class="ml-auto text-[9px] bg-purple-600 text-white px-1.5 py-0.5 rounded">✓ Applied</span>
         </div>
         <ul class="space-y-1.5">
           ${(health.gaapAdjustments?.items||[
-            'SBC加回EBITDA — TMT行业非现金扭曲，GAAP低估盈利15-25%',
-            'R&D资本化 — SaaS/软件按3-5年摊销，替代100%费用化',
-            'FCF剔除资本化软件支出 — 隐藏Capex',
-            '经营性租赁加入EV — ASC 842后合规处理',
-            '使用NTM预期EPS，而非TTM历史值',
+            'SBC add-back EBITDA — TMT non-cash distortion, GAAP understates earnings 15-25%',
+            'R&D capitalization — SaaS/software amortized 3-5 years instead of 100% expensing',
+            'FCF excludes capitalized software — hidden CapEx',
+            'Operating leases included in EV — ASC 842 compliant treatment',
+            'Uses NTM forward EPS, not TTM historical',
           ]).map(r=>`<li class="text-[10px] text-gray-500 flex gap-1.5 leading-snug"><span class="text-purple-400 flex-shrink-0 mt-0.5">•</span>${r}</li>`).join('')}
         </ul>
       </div>
@@ -1739,16 +1739,16 @@ async function dcLoadFactSetStrip() {
       const isNative = firstData?.dataSource === 'factset_consensus';
       const srcLabel = isNative ? 'FactSet NTM' : 'YF Forward Estimates';
       const srcColor = isNative ? 'text-emerald-600' : 'text-blue-600';
-      tilesEl.innerHTML = tiles.join('') + `<div class="text-[9px] ${srcColor} flex items-center self-center ml-1">${srcLabel} · EPS · 增速 · PT</div>`;
+      tilesEl.innerHTML = tiles.join('') + `<div class="text-[9px] ${srcColor} flex items-center self-center ml-1">${srcLabel} · NTM EPS · Growth · PT</div>`;
       if (badgeEl) badgeEl.innerHTML = isNative
         ? '<i class="fas fa-check-circle text-emerald-500 mr-0.5"></i>FactSet NTM ✓'
         : '<i class="fas fa-check-circle text-blue-400 mr-0.5"></i>YF Forward ✓';
     } else {
-      tilesEl.innerHTML = '<div class="text-xs text-gray-400">前瞻数据不可用</div>';
-      if (badgeEl) badgeEl.innerHTML = '<i class="fas fa-times-circle text-red-400 mr-0.5"></i>数据错误';
+      tilesEl.innerHTML = '<div class="text-xs text-gray-400">Forward data unavailable</div>';
+      if (badgeEl) badgeEl.innerHTML = '<i class="fas fa-times-circle text-red-400 mr-0.5"></i>Data Error';
     }
   } catch(e) {
-    tilesEl.innerHTML = `<div class="text-xs text-red-500">FactSet 加载失败: ${e.message}</div>`;
+    tilesEl.innerHTML = `<div class="text-xs text-red-500">FactSet load failed: ${e.message}</div>`;
   }
 }
 
@@ -2494,7 +2494,7 @@ async function renderMLFinance(el) {
       <div class="text-sm font-semibold text-white mb-4">ML vs 传统规则：性能指标对比</div>
       <table class="data-table"><thead><tr>
         <th>模型</th><th>年化收益</th><th>信息系数(IC)</th><th>ICIR</th><th>夏普比率</th>
-        <th>vs基准提升</th><th>非线性规律</th><th>自适应</th>
+        <th>vs Benchmark</th><th>Non-linear</th><th>Adaptive</th>
       </tr></thead><tbody>
         <tr class="bg-gray-50">
           <td class="text-gray-500 text-xs">五因子硬编码 (30/25/20/15/10)</td>
@@ -2532,7 +2532,7 @@ async function renderMLFinance(el) {
         <div class="bg-gray-50 rounded p-3">
           <div class="text-[10px] text-cyan-400 font-semibold uppercase mb-2">🔧 升级路径</div>
           <ul class="text-xs text-gray-500 space-y-1">
-            <li>① 用RF替换五因子硬编码权重</li>
+            <li>① Replace 5-factor hardcoded weights with Random Forest</li>
             <li>② 添加LSTM序列预测层</li>
             <li>③ 集成FinBERT财报情绪分析</li>
             <li>④ HMM识别市场状态动态调权</li>
@@ -2542,10 +2542,10 @@ async function renderMLFinance(el) {
         <div class="bg-gray-50 rounded p-3">
           <div class="text-[10px] text-purple-400 font-semibold uppercase mb-2">⚠️ 关键风险</div>
           <ul class="text-xs text-gray-500 space-y-1">
-            <li>• 过拟合：训练数据太少/特征太多</li>
-            <li>• 数据泄露：未来信息污染训练集</li>
-            <li>• 模型退化：市场结构变化后失效</li>
-            <li>• 策略容量：IC高不等于可扩容</li>
+            <li>• Overfitting: too little training data / too many features</li>
+            <li>• Data leakage: future information contaminates training set</li>
+            <li>• Model decay: fails after market regime change</li>
+            <li>• Strategy capacity: high IC ≠ scalable</li>
             <li>• 始终用Walk-Forward验证</li>
           </ul>
         </div>
@@ -4821,7 +4821,7 @@ async function renderNewsAgent(el) {
   <div>
     <h2 class="text-xl font-bold text-gray-900 flex items-center gap-2">
       <i class="fas fa-newspaper text-blue-600"></i>
-      新闻情报 · 机构宏观监控
+      新闻情报 News Intel · 机构宏观监控 Institutional Monitor
       ${isLive
         ? `<span class="text-[9px] font-bold px-2 py-0.5 rounded-full animate-pulse" style="background:#dcfce7;color:#166534;border:1px solid #86efac"><i class="fas fa-circle" style="font-size:5px"></i> LIVE</span>`
         : `<span class="text-[9px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">DEMO</span>`}
@@ -4911,7 +4911,7 @@ async function renderNewsAgent(el) {
     onclick="navigate('stockanalysis');setTimeout(()=>{document.getElementById('sa-ticker')&&(document.getElementById('sa-ticker').value='${t.replace('^','')}',saSearch())},300)">
     <div class="flex items-center gap-2 mb-1">
       <span class="font-mono font-bold text-gray-900 text-sm">${t}</span>
-      <span class="text-[9px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full">深度分析 →</span>
+      <span class="text-[9px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full">Deep Analysis →</span>
     </div>
     <div class="text-[10px] text-gray-500">${
       t==='^GSPC'?'S&P 500 指数':t==='GLD'?'黄金 ETF':t==='TLT'?'长期国债 ETF':t==='^VIX'?'恐慌指数 VIX':t
@@ -4952,7 +4952,7 @@ async function renderNewsAgent(el) {
 
 
 // ╔══════════════════════════════════════════════════════════════════════════╗
-// ║  个股深度分析模块 — Stock Deep Analysis                                   ║
+// ║  个股Deep Analysis模块 — Stock Deep Analysis                                   ║
 // ║  Data Layer 1: Yahoo Finance LIVE  |  Layer 2: FactSet cross-val        ║
 // ╚══════════════════════════════════════════════════════════════════════════╝
 
@@ -4965,7 +4965,7 @@ async function renderStockAnalysis(el) {
   <div>
     <div class="text-gray-900 font-bold text-base flex items-center gap-2">
       <i class="fas fa-microscope text-indigo-500"></i>
-      个股深度分析 — Stock Deep Analysis
+      个股Deep Analysis — Stock Deep Analysis
     </div>
     <div class="text-xs text-gray-500 mt-0.5">
       Layer 1: Yahoo Finance 实时数据 · Layer 2: FactSet 交叉验证 · 审计级 GAAP 调整
@@ -5043,7 +5043,7 @@ async function renderStockAnalysis(el) {
         <button onclick="saSearch()"
           class="px-5 py-2 rounded-lg text-sm font-semibold text-white transition"
           style="background:#4f46e5">
-          <i class="fas fa-search mr-1"></i>深度分析
+          <i class="fas fa-search mr-1"></i>Deep Analysis
         </button>
       </div>
     </div>
@@ -5060,8 +5060,8 @@ async function renderStockAnalysis(el) {
 <div id="sa-result">
   <div class="text-center py-16 text-gray-400">
     <i class="fas fa-search text-4xl mb-3 block opacity-30"></i>
-    <div class="text-sm">输入股票代码开始深度分析</div>
-    <div class="text-xs mt-1">数据来源：Yahoo Finance 实时 + FactSet 交叉验证</div>
+    <div class="text-sm">Enter ticker for deep analysis</div>
+    <div class="text-xs mt-1">Data: Yahoo Finance Live + FactSet Cross-Validation</div>
   </div>
 </div>`;
 
@@ -5084,8 +5084,8 @@ window.saSearch = async function() {
     <div class="flex items-center justify-center py-16 gap-3 text-gray-500">
       <i class="fas fa-spinner fa-spin text-indigo-500 text-xl"></i>
       <div>
-        <div class="text-sm font-semibold">正在拉取 ${ticker} 数据...</div>
-        <div class="text-xs mt-1">Yahoo Finance API + 审计级调整计算中</div>
+        <div class="text-sm font-semibold">Fetching ${ticker} data...</div>
+        <div class="text-xs mt-1">Yahoo Finance API + audit-grade adjustments</div>
       </div>
     </div>`;
 
@@ -5103,7 +5103,7 @@ window.saSearch = async function() {
       resultEl.innerHTML = `<div class="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
         <i class="fas fa-exclamation-triangle text-red-400 text-2xl mb-2"></i>
         <div class="text-red-700 font-semibold">${d?.error || 'Data service unavailable'}</div>
-        <div class="text-red-500 text-xs mt-1">请确认 data-service 正在运行 (pm2 status)</div>
+        <div class="text-red-500 text-xs mt-1">Please verify data-service is running (pm2 status)</div>
       </div>`;
       return;
     }
@@ -5802,7 +5802,7 @@ function saAiVerdict(d) {
 
   summary = reasons.length > 0
     ? reasons.join('。') + `。综合评分 ${score}/100。`
-    : `数据加载中，请稍候完整分析。`;
+    : `Loading data, please wait for complete analysis…`;
 
   return { signal, bg, border, iconBg, iconColor, tagClass, summary, score };
 }

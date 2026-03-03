@@ -1675,12 +1675,718 @@ def get_macro():
 # ══════════════════════════════════════════════════════════════════════════════
 # /api/health  — service health
 # ══════════════════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════════
+# FactSet Fundamentals API — Company financial data & ratios
+# Spec: factset_fundamentals_api-v2.yml (v2.5.1)
+# ══════════════════════════════════════════════════════════════════════════════
+@app.route('/api/factset/fundamentals/<ticker>')
+def factset_fundamentals(ticker):
+    """
+    Return standardized company fundamentals from FactSet Fundamentals API.
+    Metrics: Revenue, EPS, EBITDA, Net Income, Total Debt, Cash, FCF, etc.
+    Falls back to Yahoo Finance quarterly data when FactSet auth is unavailable.
+    """
+    ticker = ticker.upper().strip()
+    periodicity = request.args.get('periodicity', 'QTR')  # ANN|QTR
+    periods     = request.args.get('periods', '8')         # Number of periods
+
+    cache_key = f'fs_fundamentals_{ticker}_{periodicity}_{periods}'
+    cached = cache_get(cache_key, ttl=3600)
+    if cached:
+        return jsonify(cached)
+
+    # ── Try FactSet Fundamentals API ────────────────────────────────────────
+    if FACTSET_API_KEY:
+        try:
+            body = {
+                'ids': [f'{ticker}-US'],
+                'periodicity': periodicity,
+                'fiscalPeriodStart': f'-{int(periods)-1}',
+                'fiscalPeriodEnd': '0',
+                'metrics': [
+                    'FF_SALES', 'FF_EBITDA', 'FF_NET_INC', 'FF_EPS_BASIC',
+                    'FF_EPS_DIL', 'FF_FCF', 'FF_TOTAL_DEBT', 'FF_CASH_ST',
+                    'FF_CAPEX', 'FF_GROSS_MARGIN', 'FF_OPER_MARGIN',
+                    'FF_NET_MARGIN', 'FF_SBC', 'FF_DA', 'FF_RD_EXP',
+                ],
+                'currency': 'USD',
+                'updateType': 'RF',
+            }
+            data = factset_post('/factset-fundamentals/v2/fundamentals', body)
+            items = data.get('data', [])
+
+            result = {
+                'ticker': ticker,
+                'factsetId': f'{ticker}-US',
+                'periodicity': periodicity,
+                'data': items,
+                'count': len(items),
+                'dataSource': 'factset_fundamentals',
+                'lastUpdated': datetime.utcnow().isoformat() + 'Z',
+            }
+            cache_set(cache_key, result)
+            return jsonify(result)
+        except Exception as ex:
+            pass  # Fall through to Yahoo Finance fallback
+
+    # ── Yahoo Finance fallback ───────────────────────────────────────────────
+    try:
+        t = yf.Ticker(ticker)
+        fin = t.financials if periodicity == 'ANN' else t.quarterly_financials
+        bs  = t.balance_sheet if periodicity == 'ANN' else t.quarterly_balance_sheet
+        cf  = t.cashflow if periodicity == 'ANN' else t.quarterly_cashflow
+        info = t.info or {}
+
+        periods_list = []
+        if fin is not None and not fin.empty:
+            for col in list(fin.columns)[:int(periods)]:
+                period_date = str(col)[:10] if hasattr(col, 'isoformat') else str(col)[:10]
+                def _g(df, key):
+                    if df is not None and key in df.index:
+                        v = df[col].get(key)
+                        return float(v) if v is not None and str(v) != 'nan' else None
+                    return None
+                revenue     = _g(fin, 'Total Revenue')
+                ebitda      = _g(fin, 'EBITDA')
+                net_income  = _g(fin, 'Net Income')
+                gross_profit = _g(fin, 'Gross Profit')
+                op_income   = _g(fin, 'Operating Income')
+                da          = _g(cf,  'Depreciation And Amortization')
+                capex       = _g(cf,  'Capital Expenditure')
+                fcf         = None
+                ocf         = _g(cf,  'Operating Cash Flow')
+                if ocf and capex:
+                    fcf = ocf + capex  # capex is negative in yf
+
+                periods_list.append({
+                    'period': period_date,
+                    'revenue': revenue,
+                    'ebitda': ebitda,
+                    'net_income': net_income,
+                    'gross_profit': gross_profit,
+                    'operating_income': op_income,
+                    'da': da,
+                    'capex': capex,
+                    'fcf': fcf,
+                    'eps_diluted': None,  # from info
+                })
+
+        result = {
+            'ticker': ticker,
+            'factsetId': f'{ticker}-US',
+            'periodicity': periodicity,
+            'data': periods_list,
+            'count': len(periods_list),
+            'dataSource': 'yahoo_finance_fallback',
+            'dataSourceNote': 'FactSet auth pending — using Yahoo Finance quarterly financials',
+            'factsetConfigured': bool(FACTSET_API_KEY),
+            'lastUpdated': datetime.utcnow().isoformat() + 'Z',
+        }
+        cache_set(cache_key, result)
+        return jsonify(result)
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({'error': str(e), 'ticker': ticker}), 500
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FactSet News API — Institutional headlines & news
+# Spec: factset_news_api-v1.yml (v1.8.0)
+# ══════════════════════════════════════════════════════════════════════════════
+@app.route('/api/factset/news/headlines')
+def factset_news_headlines():
+    """
+    Fetch FactSet News headlines with optional filters.
+    Falls back to Yahoo Finance RSS + Reuters RSS when FactSet auth unavailable.
+    """
+    ticker   = request.args.get('ticker', '').upper().strip()
+    category = request.args.get('category', 'all')   # all|market|earnings|macro
+    limit    = int(request.args.get('limit', 20))
+
+    cache_key = f'fs_news_{ticker}_{category}_{limit}'
+    cached = cache_get(cache_key, ttl=300)
+    if cached:
+        return jsonify(cached)
+
+    # ── Try FactSet News API ─────────────────────────────────────────────────
+    if FACTSET_API_KEY:
+        try:
+            body = {
+                'searchTime': {
+                    'start': (datetime.utcnow() - timedelta(days=3)).strftime('%Y-%m-%dT00:00:00Z'),
+                    'end':   datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
+                },
+                'pagination': {'limit': limit, 'offset': 0},
+                'sort': 'storyDateTime:desc',
+            }
+            if ticker:
+                body['filters'] = {'tickers': [f'{ticker}-US']}
+
+            data = factset_post('/news/v1/headlines', body)
+            items = data.get('data', {}).get('headlines', data.get('headlines', []))
+
+            headlines = []
+            for item in items[:limit]:
+                headlines.append({
+                    'id':        item.get('storyId', item.get('id', '')),
+                    'title':     item.get('title', item.get('headline', '')),
+                    'time':      item.get('storyDateTime', item.get('time', '')),
+                    'source':    item.get('source', {}).get('name', 'FactSet News'),
+                    'tickers':   item.get('tickers', []),
+                    'url':       item.get('storyUrl', ''),
+                    'dataSource': 'factset_news',
+                })
+
+            result = {
+                'ticker': ticker or 'ALL',
+                'category': category,
+                'headlines': headlines,
+                'count': len(headlines),
+                'dataSource': 'factset_news',
+                'lastUpdated': datetime.utcnow().isoformat() + 'Z',
+            }
+            cache_set(cache_key, result)
+            return jsonify(result)
+        except Exception:
+            pass  # Fall through to RSS fallback
+
+    # ── Fallback: Yahoo Finance RSS ──────────────────────────────────────────
+    try:
+        import xml.etree.ElementTree as ET
+        headlines = []
+
+        def _parse_rss(url, source_name):
+            try:
+                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req, timeout=8) as r:
+                    root = ET.fromstring(r.read())
+                channel = root.find('channel') or root
+                for item in channel.findall('item')[:10]:
+                    title = (item.findtext('title') or '').strip()
+                    link  = item.findtext('link') or ''
+                    pub   = item.findtext('pubDate') or ''
+                    if title:
+                        headlines.append({
+                            'title':     title,
+                            'url':       link,
+                            'time':      pub,
+                            'source':    source_name,
+                            'tickers':   [ticker] if ticker else [],
+                            'dataSource': 'rss_fallback',
+                        })
+            except Exception:
+                pass
+
+        if ticker:
+            _parse_rss(f'https://feeds.finance.yahoo.com/rss/2.0/headline?s={ticker}&region=US&lang=en-US', 'Yahoo Finance')
+        _parse_rss('https://feeds.finance.yahoo.com/rss/2.0/headline?s=^GSPC&region=US&lang=en-US', 'Yahoo Finance Markets')
+        _parse_rss('https://feeds.reuters.com/reuters/businessNews', 'Reuters Business')
+
+        headlines = headlines[:limit]
+        result = {
+            'ticker': ticker or 'ALL',
+            'category': category,
+            'headlines': headlines,
+            'count': len(headlines),
+            'dataSource': 'rss_fallback',
+            'dataSourceNote': 'FactSet News auth pending — using RSS fallback',
+            'factsetConfigured': bool(FACTSET_API_KEY),
+            'lastUpdated': datetime.utcnow().isoformat() + 'Z',
+        }
+        cache_set(cache_key, result)
+        return jsonify(result)
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FactSet Concordance API — Map company names to FactSet IDs
+# Spec: factset_concordance_api-v2.yaml (v2.8.0)
+# ══════════════════════════════════════════════════════════════════════════════
+@app.route('/api/factset/concordance/entity')
+def factset_concordance_entity():
+    """
+    Match company name or ticker to FactSet entity ID.
+    Used to map user-supplied company names to FactSet's canonical IDs.
+    Falls back to ticker-based heuristic when FactSet auth unavailable.
+    """
+    name   = request.args.get('name', '').strip()
+    ticker = request.args.get('ticker', '').upper().strip()
+
+    if not name and not ticker:
+        return jsonify({'error': 'Provide name or ticker parameter'}), 400
+
+    cache_key = f'fs_concordance_{name}_{ticker}'
+    cached = cache_get(cache_key, ttl=86400)  # 24h cache
+    if cached:
+        return jsonify(cached)
+
+    # ── Try FactSet Concordance API ──────────────────────────────────────────
+    if FACTSET_API_KEY:
+        try:
+            params = []
+            if name:
+                params.append(f'name={urllib.parse.quote(name)}')
+            if ticker:
+                params.append(f'universe=TICKER&ticker={ticker}')
+            query = '&'.join(params)
+            data = factset_get(f'/factset-concordance/v2/entity-match?{query}')
+            matches = data.get('data', {}).get('entityMatchRequest', {}).get('entityMatches', [])
+
+            result = {
+                'query': name or ticker,
+                'matches': matches[:5],
+                'count': len(matches),
+                'dataSource': 'factset_concordance',
+                'lastUpdated': datetime.utcnow().isoformat() + 'Z',
+            }
+            cache_set(cache_key, result)
+            return jsonify(result)
+        except Exception:
+            pass
+
+    # ── Fallback: heuristic mapping ──────────────────────────────────────────
+    factset_id = f'{ticker}-US' if ticker else None
+    result = {
+        'query': name or ticker,
+        'matches': [{'factsetId': factset_id, 'entityName': name or ticker, 'matchFlag': 'HEURISTIC'}] if factset_id else [],
+        'count': 1 if factset_id else 0,
+        'dataSource': 'heuristic_fallback',
+        'dataSourceNote': 'FactSet Concordance auth pending — using ticker-based heuristic',
+        'factsetConfigured': bool(FACTSET_API_KEY),
+        'lastUpdated': datetime.utcnow().isoformat() + 'Z',
+    }
+    cache_set(cache_key, result)
+    return jsonify(result)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FactSet Universal Screening API — Screener with FactSet metrics
+# Spec: universal_screening_api-v2.yaml (v2.1.0)
+# ══════════════════════════════════════════════════════════════════════════════
+@app.route('/api/factset/screening/run', methods=['GET', 'POST'])
+def factset_screening_run():
+    """
+    Run a FactSet Universal Screening query.
+    GET: Pre-canned screens (high FCF, low EV/EBITDA, strong growth)
+    POST: Custom screen with user-supplied criteria
+    Falls back to local screener when FactSet auth unavailable.
+    """
+    if request.method == 'POST':
+        body = request.get_json(silent=True) or {}
+        screen_type = body.get('screen', 'value')
+        universe    = body.get('universe', 'SP500')
+        limit       = int(body.get('limit', 50))
+    else:
+        screen_type = request.args.get('screen', 'value')
+        universe    = request.args.get('universe', 'SP500')
+        limit       = int(request.args.get('limit', 50))
+
+    # Pre-canned screen definitions
+    SCREENS = {
+        'value':    {'label': 'Deep Value', 'expr': 'P_EV_EBITDA(ANN,0) < 12 AND P_FCF_YIELD > 3'},
+        'growth':   {'label': 'High Growth', 'expr': 'FF_SALES_GROW_5YR > 15 AND FF_EPS_GROW_5YR > 10'},
+        'quality':  {'label': 'Quality', 'expr': 'FF_GROSS_MARGIN > 40 AND FF_NET_MARGIN > 10 AND P_NET_LEVERAGE < 2'},
+        'momentum': {'label': 'Momentum', 'expr': 'P_PRICE_CHG_1M > 0 AND P_PRICE_CHG_3M > 5'},
+    }
+
+    cache_key = f'fs_screening_{screen_type}_{universe}_{limit}'
+    cached = cache_get(cache_key, ttl=1800)  # 30-min cache
+    if cached:
+        return jsonify(cached)
+
+    # ── Try FactSet Universal Screening API ──────────────────────────────────
+    if FACTSET_API_KEY:
+        try:
+            screen_expr = SCREENS.get(screen_type, SCREENS['value'])['expr']
+            calc_body = {
+                'data': {
+                    'universe': {'type': universe, 'expression': screen_expr},
+                    'formulas': [
+                        {'name': 'ticker',     'formula': 'P_TICKER'},
+                        {'name': 'name',       'formula': 'FF_CNAME'},
+                        {'name': 'sector',     'formula': 'FF_INDUSTRY_SECTOR'},
+                        {'name': 'marketCap',  'formula': 'FF_MKT_CAP'},
+                        {'name': 'evEbitda',   'formula': 'P_EV_EBITDA(ANN,0)'},
+                        {'name': 'fcfYield',   'formula': 'P_FCF_YIELD'},
+                        {'name': 'revenueGrowth', 'formula': 'FF_SALES_GROW_5YR'},
+                        {'name': 'grossMargin','formula': 'FF_GROSS_MARGIN'},
+                        {'name': 'netLeverage','formula': 'P_NET_LEVERAGE'},
+                        {'name': 'forwardPE',  'formula': 'P_FPE_EPS_NTM'},
+                    ],
+                    'pagination': {'limit': limit},
+                }
+            }
+            # Note: Universal Screening uses async job-based API
+            # For synchronous use, we use /job/calculate and poll
+            data = factset_post('/universal-screening/v2/job/calculate', calc_body)
+            job_id = data.get('data', {}).get('jobId')
+
+            if job_id:
+                # Poll for results (max 5 attempts, 1s apart)
+                for _ in range(5):
+                    time.sleep(1)
+                    status_data = factset_get(f'/universal-screening/v2/job/{job_id}/status')
+                    if status_data.get('data', {}).get('status') == 'SUCCESS':
+                        export_data = factset_get(f'/universal-screening/v2/job/{job_id}/export')
+                        rows = export_data.get('data', [])
+                        result = {
+                            'screen': screen_type,
+                            'screenLabel': SCREENS.get(screen_type, {}).get('label', screen_type),
+                            'universe': universe,
+                            'stocks': rows[:limit],
+                            'count': len(rows),
+                            'dataSource': 'factset_screening',
+                            'lastUpdated': datetime.utcnow().isoformat() + 'Z',
+                        }
+                        cache_set(cache_key, result)
+                        return jsonify(result)
+
+        except Exception:
+            pass  # Fall through to local screener
+
+    # ── Fallback: local YF-based screener ────────────────────────────────────
+    try:
+        from flask import current_app
+        TICKERS_TO_SCREEN = CORE_TICKERS[:30]  # Sample for speed
+        results = []
+
+        for t_sym in TICKERS_TO_SCREEN:
+            c_key = f'screen_stock_{t_sym}'
+            stock_data = cache_get(c_key, ttl=3600)
+            if not stock_data:
+                try:
+                    t = yf.Ticker(t_sym)
+                    info = t.info or {}
+                    stock_data = {
+                        'ticker':       t_sym,
+                        'name':         info.get('longName', t_sym),
+                        'sector':       info.get('sector', 'Unknown'),
+                        'marketCap':    safe_float(info.get('marketCap', 0)) / 1e9,
+                        'forwardPE':    safe_float(info.get('forwardPE')),
+                        'revenueGrowth': safe_float(info.get('revenueGrowth', 0)) * 100,
+                        'grossMargin':  safe_float(info.get('grossMargins', 0)) * 100,
+                        'fcfYield':     0,
+                        'evEbitda':     safe_float(info.get('enterpriseToEbitda')),
+                    }
+                    cache_set(c_key, stock_data)
+                except Exception:
+                    continue
+            results.append(stock_data)
+
+        # Apply screen filter
+        if screen_type == 'value':
+            results = [s for s in results if s.get('evEbitda', 99) < 15 and s.get('forwardPE', 99) < 25]
+        elif screen_type == 'growth':
+            results = [s for s in results if s.get('revenueGrowth', 0) > 10]
+        elif screen_type == 'quality':
+            results = [s for s in results if s.get('grossMargin', 0) > 35]
+
+        results = sorted(results, key=lambda x: x.get('revenueGrowth', 0), reverse=True)[:limit]
+
+        result = {
+            'screen': screen_type,
+            'screenLabel': SCREENS.get(screen_type, {}).get('label', screen_type),
+            'universe': universe,
+            'stocks': results,
+            'count': len(results),
+            'dataSource': 'yf_local_screener',
+            'dataSourceNote': 'FactSet Screening auth pending — using local YF screener',
+            'factsetConfigured': bool(FACTSET_API_KEY),
+            'lastUpdated': datetime.utcnow().isoformat() + 'Z',
+        }
+        cache_set(cache_key, result)
+        return jsonify(result)
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FactSet Security Intelligence API — Company events & stock movement
+# Spec: security_intelligence_api-v1.json.txt (v1)
+# ══════════════════════════════════════════════════════════════════════════════
+@app.route('/api/factset/security-intel/<ticker>')
+def factset_security_intel(ticker):
+    """
+    Return stock movement summary & key events from FactSet Security Intelligence.
+    Falls back to Yahoo Finance info + news when FactSet auth unavailable.
+    Supports outputType: full (default) | oneline
+    """
+    ticker      = ticker.upper().strip()
+    output_type = request.args.get('outputType', 'full')
+
+    cache_key = f'fs_secintel_{ticker}_{output_type}'
+    cached = cache_get(cache_key, ttl=900)  # 15-min
+    if cached:
+        return jsonify(cached)
+
+    # ── Try FactSet Security Intelligence API ────────────────────────────────
+    if FACTSET_API_KEY:
+        try:
+            # Stock movement summary
+            params = f'?identifier={ticker}&outputType={output_type}'
+            data = factset_get(f'/security-intelligence/v1/company/stock-movement-summary{params}')
+
+            # Key company events
+            events_data = {}
+            try:
+                events_data = factset_get(f'/security-intelligence/v1/company/events?identifier={ticker}')
+            except Exception:
+                pass
+
+            result = {
+                'ticker': ticker,
+                'stockMovement': data.get('data', {}),
+                'events': events_data.get('data', []),
+                'dataSource': 'factset_security_intel',
+                'lastUpdated': datetime.utcnow().isoformat() + 'Z',
+            }
+            cache_set(cache_key, result)
+            return jsonify(result)
+        except Exception:
+            pass
+
+    # ── Yahoo Finance fallback ───────────────────────────────────────────────
+    try:
+        t = yf.Ticker(ticker)
+        info = t.info or {}
+        hist = t.history(period='5d')
+
+        price     = safe_float(info.get('currentPrice') or info.get('regularMarketPrice'))
+        prev      = safe_float(info.get('previousClose'))
+        chg_pct   = ((price - prev) / prev * 100) if prev else 0
+        week52h   = safe_float(info.get('fiftyTwoWeekHigh'))
+        week52l   = safe_float(info.get('fiftyTwoWeekLow'))
+        avg_vol   = safe_float(info.get('averageVolume'))
+        vol       = safe_float(info.get('volume'))
+        vol_ratio = vol / avg_vol if avg_vol else 1.0
+
+        movement_summary = {
+            'ticker':       ticker,
+            'price':        price,
+            'change_pct':   round(chg_pct, 2),
+            'direction':    'up' if chg_pct > 0 else 'down' if chg_pct < 0 else 'flat',
+            'volume_ratio': round(vol_ratio, 2),
+            'signal':       'high_volume' if vol_ratio > 2 else 'normal',
+            'week52_high':  week52h,
+            'week52_low':   week52l,
+            'pct_from_52h': round((price - week52h) / week52h * 100, 1) if week52h else None,
+            'pct_from_52l': round((price - week52l) / week52l * 100, 1) if week52l else None,
+            'short_summary': f'{ticker} {"+%.2f" % chg_pct if chg_pct >= 0 else "%.2f" % chg_pct}% today'
+                             f', vol ratio {vol_ratio:.1f}x avg',
+        }
+
+        if output_type == 'oneline':
+            movement_summary = {'oneline': movement_summary['short_summary']}
+
+        result = {
+            'ticker': ticker,
+            'stockMovement': movement_summary,
+            'events': [],
+            'dataSource': 'yahoo_finance_fallback',
+            'dataSourceNote': 'FactSet Security Intel auth pending — using Yahoo Finance',
+            'factsetConfigured': bool(FACTSET_API_KEY),
+            'lastUpdated': datetime.utcnow().isoformat() + 'Z',
+        }
+        cache_set(cache_key, result)
+        return jsonify(result)
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({'error': str(e), 'ticker': ticker}), 500
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FactSet Estimates Extended — Rolling consensus + Ratings + Surprise
+# Spec: factset_estimates_api-v2.yml (v2.8.1)
+# ══════════════════════════════════════════════════════════════════════════════
+@app.route('/api/factset/estimates/rolling/<ticker>')
+def factset_estimates_rolling(ticker):
+    """
+    Return rolling NTM/1FY/2FY consensus estimates.
+    Metrics: EPS, SALES, EBITDA, FCF, DPS, BPS
+    Falls back to Yahoo Finance forward estimates.
+    """
+    ticker   = ticker.upper().strip()
+    fiscal   = request.args.get('period', 'NTM')  # NTM|1FY|2FY
+
+    cache_key = f'fs_est_rolling_{ticker}_{fiscal}'
+    cached = cache_get(cache_key, ttl=3600)
+    if cached:
+        return jsonify(cached)
+
+    if FACTSET_API_KEY:
+        try:
+            body = {
+                'ids': [f'{ticker}-US'],
+                'metrics': ['EPS', 'SALES', 'EBITDA', 'FCF', 'EPS_GROWTH',
+                            'SALES_GROWTH', 'EBITDA_GROWTH', 'DPS', 'BPS',
+                            'OPER_INC', 'NET_INC'],
+                'periodicity': 'NTM',
+                'currency': 'USD',
+                'includeAll': False,
+            }
+            data = factset_post('/factset-estimates/v2/rolling-consensus', body)
+            items = data.get('data', [])
+
+            # Also get ratings
+            ratings_body = {
+                'ids': [f'{ticker}-US'],
+                'periodicity': 'NTM',
+            }
+            ratings_data = {}
+            try:
+                rd = factset_post('/factset-estimates/v2/consensus-ratings', ratings_body)
+                ratings_data = rd.get('data', [{}])[0] if rd.get('data') else {}
+            except Exception:
+                pass
+
+            result = {
+                'ticker': ticker,
+                'period': fiscal,
+                'estimates': items,
+                'ratings': ratings_data,
+                'count': len(items),
+                'dataSource': 'factset_estimates_rolling',
+                'lastUpdated': datetime.utcnow().isoformat() + 'Z',
+            }
+            cache_set(cache_key, result)
+            return jsonify(result)
+        except Exception:
+            pass
+
+    # ── Yahoo Finance fallback ───────────────────────────────────────────────
+    try:
+        t = yf.Ticker(ticker)
+        info = t.info or {}
+        # earnings estimates
+        try:
+            earn_est = t.earnings_estimate
+            rev_est  = t.revenue_estimate
+        except Exception:
+            earn_est = None
+            rev_est  = None
+
+        items = [
+            {'metric': 'EPS',          'value': safe_float(info.get('forwardEps')),      'currency': 'USD'},
+            {'metric': 'EPS_GROWTH',   'value': safe_float(info.get('earningsGrowth')),  'currency': 'USD'},
+            {'metric': 'SALES_GROWTH', 'value': safe_float(info.get('revenueGrowth')),   'currency': 'USD'},
+            {'metric': 'EBITDA',       'value': safe_float(info.get('ebitda')),           'currency': 'USD'},
+        ]
+
+        # Analyst rating heuristic
+        rec = info.get('recommendationMean', 3.0)
+        rating_map = {1: 'Strong Buy', 2: 'Buy', 3: 'Hold', 4: 'Underperform', 5: 'Sell'}
+        rating_label = rating_map.get(round(rec), 'Hold')
+
+        result = {
+            'ticker': ticker,
+            'period': fiscal,
+            'estimates': items,
+            'ratings': {
+                'recommendation': rating_label,
+                'recommendationMean': rec,
+                'numAnalysts': info.get('numberOfAnalystOpinions', 0),
+            },
+            'count': len(items),
+            'dataSource': 'yahoo_finance_forward',
+            'dataSourceNote': 'FactSet Estimates auth pending — using Yahoo Finance forward',
+            'factsetConfigured': bool(FACTSET_API_KEY),
+            'lastUpdated': datetime.utcnow().isoformat() + 'Z',
+        }
+        cache_set(cache_key, result)
+        return jsonify(result)
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({'error': str(e), 'ticker': ticker}), 500
+
+
+@app.route('/api/factset/estimates/surprise/<ticker>')
+def factset_estimates_surprise(ticker):
+    """
+    Return historical earnings surprise data.
+    Falls back to Yahoo Finance earnings history.
+    """
+    ticker   = ticker.upper().strip()
+    periods  = int(request.args.get('periods', 8))
+
+    cache_key = f'fs_surprise_{ticker}_{periods}'
+    cached = cache_get(cache_key, ttl=3600)
+    if cached:
+        return jsonify(cached)
+
+    if FACTSET_API_KEY:
+        try:
+            body = {
+                'ids': [f'{ticker}-US'],
+                'metrics': ['EPS', 'SALES'],
+                'periodicity': 'QTR',
+                'fiscalPeriodStart': f'-{periods}',
+                'fiscalPeriodEnd': '0',
+                'currency': 'USD',
+            }
+            data = factset_post('/factset-estimates/v2/surprise', body)
+            items = data.get('data', [])
+            result = {
+                'ticker': ticker,
+                'surprises': items,
+                'count': len(items),
+                'dataSource': 'factset_surprise',
+                'lastUpdated': datetime.utcnow().isoformat() + 'Z',
+            }
+            cache_set(cache_key, result)
+            return jsonify(result)
+        except Exception:
+            pass
+
+    # ── Yahoo Finance fallback ───────────────────────────────────────────────
+    try:
+        t = yf.Ticker(ticker)
+        try:
+            hist_earn = t.earnings_history
+        except Exception:
+            hist_earn = None
+
+        surprises = []
+        if hist_earn is not None and not hist_earn.empty:
+            for idx, row in hist_earn.iterrows():
+                actual   = row.get('epsActual')
+                estimate = row.get('epsEstimate')
+                surprise_pct = None
+                if estimate and estimate != 0 and actual is not None:
+                    surprise_pct = round((float(actual) - float(estimate)) / abs(float(estimate)) * 100, 2)
+                surprises.append({
+                    'period':       str(idx)[:10] if hasattr(idx, 'isoformat') else str(idx)[:10],
+                    'metric':       'EPS',
+                    'actual':       float(actual) if actual else None,
+                    'estimate':     float(estimate) if estimate else None,
+                    'surprise_pct': surprise_pct,
+                    'beat':         surprise_pct > 0 if surprise_pct else None,
+                })
+
+        result = {
+            'ticker': ticker,
+            'surprises': surprises[:periods],
+            'count': len(surprises),
+            'dataSource': 'yahoo_finance_earnings_history',
+            'dataSourceNote': 'FactSet Surprise auth pending — using Yahoo Finance',
+            'factsetConfigured': bool(FACTSET_API_KEY),
+            'lastUpdated': datetime.utcnow().isoformat() + 'Z',
+        }
+        cache_set(cache_key, result)
+        return jsonify(result)
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({'error': str(e), 'ticker': ticker}), 500
+
+
 @app.route('/api/health')
 def health():
     return jsonify({
         'status': 'ok',
         'service': 'QuantAlpha Data Microservice',
-        'version': '3.0.0',
+        'version': '4.0.0',
         'endpoints': [
             'GET /api/yf/quote/<ticker>',
             'GET /api/yf/financials/<ticker>',
@@ -1690,15 +2396,38 @@ def health():
             'GET /api/yf/history/<ticker>',
             'GET /api/yf/analyst/<ticker>',
             'GET /api/yf/macro',
+            # FactSet Core
             'GET /api/factset/validate/<ticker>',
             'GET /api/factset/consensus/<ticker>',
             'GET /api/factset/crossvalidate/<ticker>',
             'GET /api/factset/history/<ticker>',
             'GET /api/factset/ml-data/<ticker>',
+            # FactSet Fundamentals API
+            'GET /api/factset/fundamentals/<ticker>',
+            # FactSet News API
+            'GET /api/factset/news/headlines',
+            # FactSet Concordance API
+            'GET /api/factset/concordance/entity',
+            # FactSet Universal Screening
+            'GET|POST /api/factset/screening/run',
+            # FactSet Security Intelligence
+            'GET /api/factset/security-intel/<ticker>',
+            # FactSet Estimates Extended
+            'GET /api/factset/estimates/rolling/<ticker>',
+            'GET /api/factset/estimates/surprise/<ticker>',
+            # News
             'GET /api/news/live',
             'GET /api/news/ticker/<ticker>',
         ],
         'factset_configured': bool(FACTSET_API_KEY),
+        'factset_apis_integrated': [
+            'Estimates API v2.8.1 (consensus, rolling, surprise, ratings)',
+            'Fundamentals API v2.5.1 (financials, segments, PIT)',
+            'News API v1.8.0 (headlines, views)',
+            'Concordance API v2.8.0 (entity-match)',
+            'Universal Screening API v2.1.0 (screener)',
+            'Security Intelligence API v1 (stock-movement, events)',
+        ],
         'sp500_universe_size': len(CORE_TICKERS),
         'timestamp': datetime.utcnow().isoformat() + 'Z',
     })

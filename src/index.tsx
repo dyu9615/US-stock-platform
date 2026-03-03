@@ -463,6 +463,82 @@ app.get('/api/live/factset/ml-data/:ticker', async (c) => {
   }
 })
 
+// ── FactSet Fundamentals API (Company financial data) ─────────────────────────
+app.get('/api/live/factset/fundamentals/:ticker', async (c) => {
+  const periodicity = c.req.query('periodicity') || 'QTR'
+  const periods = c.req.query('periods') || '8'
+  try {
+    return proxyFetch(`${DATA_SVC}/api/factset/fundamentals/${c.req.param('ticker')}?periodicity=${periodicity}&periods=${periods}`)
+  } catch(e: any) {
+    return c.json({ error: e.message }, 503)
+  }
+})
+
+// ── FactSet News API (Headlines) ──────────────────────────────────────────────
+app.get('/api/live/factset/news', async (c) => {
+  const ticker   = c.req.query('ticker') || ''
+  const category = c.req.query('category') || 'all'
+  const limit    = c.req.query('limit') || '20'
+  try {
+    return proxyFetch(`${DATA_SVC}/api/factset/news/headlines?ticker=${ticker}&category=${category}&limit=${limit}`)
+  } catch(e: any) {
+    return c.json({ error: e.message, headlines: [] }, 503)
+  }
+})
+
+// ── FactSet Concordance API (Entity match) ────────────────────────────────────
+app.get('/api/live/factset/concordance', async (c) => {
+  const name   = c.req.query('name') || ''
+  const ticker = c.req.query('ticker') || ''
+  try {
+    return proxyFetch(`${DATA_SVC}/api/factset/concordance/entity?name=${encodeURIComponent(name)}&ticker=${ticker}`)
+  } catch(e: any) {
+    return c.json({ error: e.message }, 503)
+  }
+})
+
+// ── FactSet Universal Screening API ──────────────────────────────────────────
+app.get('/api/live/factset/screening', async (c) => {
+  const screen   = c.req.query('screen') || 'value'
+  const universe = c.req.query('universe') || 'SP500'
+  const limit    = c.req.query('limit') || '50'
+  try {
+    return proxyFetch(`${DATA_SVC}/api/factset/screening/run?screen=${screen}&universe=${universe}&limit=${limit}`)
+  } catch(e: any) {
+    return c.json({ error: e.message, stocks: [] }, 503)
+  }
+})
+
+// ── FactSet Security Intelligence API ────────────────────────────────────────
+app.get('/api/live/factset/security-intel/:ticker', async (c) => {
+  const outputType = c.req.query('outputType') || 'full'
+  try {
+    return proxyFetch(`${DATA_SVC}/api/factset/security-intel/${c.req.param('ticker')}?outputType=${outputType}`)
+  } catch(e: any) {
+    return c.json({ error: e.message }, 503)
+  }
+})
+
+// ── FactSet Estimates — Rolling consensus ──────────────────────────────────────
+app.get('/api/live/factset/estimates/rolling/:ticker', async (c) => {
+  const period = c.req.query('period') || 'NTM'
+  try {
+    return proxyFetch(`${DATA_SVC}/api/factset/estimates/rolling/${c.req.param('ticker')}?period=${period}`)
+  } catch(e: any) {
+    return c.json({ error: e.message }, 503)
+  }
+})
+
+// ── FactSet Estimates — Earnings surprise history ─────────────────────────────
+app.get('/api/live/factset/estimates/surprise/:ticker', async (c) => {
+  const periods = c.req.query('periods') || '8'
+  try {
+    return proxyFetch(`${DATA_SVC}/api/factset/estimates/surprise/${c.req.param('ticker')}?periods=${periods}`)
+  } catch(e: any) {
+    return c.json({ error: e.message }, 503)
+  }
+})
+
 // ── FactSet ticker validate (wildcard — keep LAST among factset routes) ───────
 app.get('/api/live/factset/:ticker', async (c) => {
   try {
