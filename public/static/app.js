@@ -100,12 +100,11 @@ const fmt = {
 const scoreColor = s => s>=85?'bg-emerald-500':s>=70?'bg-cyan-500':s>=55?'bg-amber-500':'bg-red-500'
 
 // ╔══════════════════════════════════════════════════════════════════════╗
-// ║  1. DASHBOARD  — Panic / Liquidity + Valuation Monitor              ║
+// ║  1. DASHBOARD  — Institutional Market Monitor                        ║
 // ╚══════════════════════════════════════════════════════════════════════╝
 async function renderDashboard(el) {
   el.innerHTML = `<div class="flex items-center justify-center h-32 text-gray-400">
-    <i class="fas fa-spinner fa-spin mr-2"></i>Loading market monitor…</div>`;
-
+    <i class="fas fa-spinner fa-spin mr-2"></i>Loading…</div>`;
   try {
     const [macroRes, erpRes, erpHistRes, macroHistRes] = await Promise.all([
       axios.get(`${API}/api/dc/macro/current`),
@@ -113,394 +112,478 @@ async function renderDashboard(el) {
       axios.get(`${API}/api/dc/erp/history?days=60`),
       axios.get(`${API}/api/dc/macro/history?days=60`)
     ]);
-    const m = macroRes.data;
-    const e = erpRes.data;
-    const erpH = erpHistRes.data.data || [];
+    const m   = macroRes.data;
+    const e   = erpRes.data;
+    const erpH = erpHistRes.data.data  || [];
     const macH = macroHistRes.data.data || [];
 
-    // ── helper colours ──────────────────────────────────────────────────
-    function signalColor(sig) {
-      if (sig === 'panic' || sig === 'distress' || sig === 'overvalued') return '#ef4444';
-      if (sig === 'warning' || sig === 'elevated')  return '#f59e0b';
-      if (sig === 'undervalued' || sig === 'attractive') return '#10b981';
-      return '#6b7280'; // neutral / normal
-    }
-    function signalBg(sig) {
-      if (sig === 'panic' || sig === 'distress' || sig === 'overvalued') return 'bg-red-900/30 border-red-500/40';
-      if (sig === 'warning' || sig === 'elevated')  return 'bg-yellow-900/30 border-yellow-500/40';
-      if (sig === 'undervalued' || sig === 'attractive') return 'bg-emerald-900/30 border-emerald-500/40';
-      return 'bg-gray-800/60 border-gray-600/40';
-    }
-    function badge(sig, label) {
-      const map = { panic:'bg-red-500', distress:'bg-red-500', overvalued:'bg-red-500',
-                    warning:'bg-yellow-500', elevated:'bg-yellow-500',
-                    undervalued:'bg-emerald-500', attractive:'bg-emerald-500',
-                    normal:'bg-gray-500', neutral:'bg-gray-500' };
-      const cls = map[sig] || 'bg-gray-500';
-      return `<span class="${cls} text-white text-xs font-bold px-2 py-0.5 rounded-full uppercase">${label||sig}</span>`;
-    }
+    // ── colour helpers ──────────────────────────────────────────────────
+    const sigColor = s => s==='panic'||s==='distress'||s==='overvalued' ? '#ef4444'
+                        : s==='warning'||s==='elevated'                 ? '#f59e0b'
+                        : s==='undervalued'||s==='attractive'           ? '#10b981' : '#6b7280';
+    const sigBorder= s => s==='panic'||s==='distress'||s==='overvalued' ? 'border-red-500/50'
+                        : s==='warning'||s==='elevated'                 ? 'border-yellow-500/50'
+                        : s==='undervalued'||s==='attractive'           ? 'border-emerald-500/50'
+                        : 'border-gray-600/40';
+    const pill = (s,l) => {
+      const bg = {panic:'bg-red-500',distress:'bg-red-500',overvalued:'bg-red-500',
+                  warning:'bg-yellow-500',elevated:'bg-yellow-500',
+                  undervalued:'bg-emerald-500',attractive:'bg-emerald-500',
+                  normal:'bg-gray-600',neutral:'bg-gray-600'}[s]||'bg-gray-600';
+      return `<span class="${bg} text-white text-[10px] font-bold px-2 py-0.5 rounded-full tracking-wide uppercase">${l||s}</span>`;
+    };
 
-    // ── panic score gauge ────────────────────────────────────────────────
-    const panicPct   = Math.min((m.panicScore / 100) * 100, 100);
-    const panicColor = m.panicScore >= 60 ? '#ef4444' : m.panicScore >= 30 ? '#f59e0b' : '#10b981';
-
-    // ── VIX term-structure label ─────────────────────────────────────────
-    const vixTSLabel = m.vixContango ? 'Contango (normal)' : '⚠ Backwardation (PANIC)';
+    const panicColor = m.panicScore>=60?'#ef4444':m.panicScore>=30?'#f59e0b':'#10b981';
     const vixTSSig   = m.vixContango ? 'normal' : 'panic';
+    const hyLabel    = m.hyOas>800?'Distress':m.hyOas>500?'Elevated':m.hyOas>400?'Caution':'Tight';
+    const hyColor    = m.hyOas>800?'#ef4444':m.hyOas>500?'#f59e0b':'#10b981';
+    const brdColor   = m.pctAbove200ma<15?'#ef4444':m.pctAbove200ma<30?'#f59e0b':'#10b981';
+    const pcColor    = m.putCallRatio>1.5?'#ef4444':m.putCallRatio>1.1?'#f59e0b':'#10b981';
+    const erpColor   = e.erp<1?'#ef4444':e.erp<2.5?'#f59e0b':'#10b981';
+    const erpSig     = e.erp<1?'overvalued':e.erp<2.5?'warning':'normal';
 
-    // ── HY OAS colour ────────────────────────────────────────────────────
-    const hyColor = m.hyOas > 800 ? '#ef4444' : m.hyOas > 500 ? '#f59e0b' : '#10b981';
-    const hyLabel = m.hyOas > 800 ? 'Credit Distress' : m.hyOas > 500 ? 'Elevated' : m.hyOas > 400 ? 'Caution' : 'Tight';
+    // ── sub-module toggle ───────────────────────────────────────────────
+    let openSub = null;
+    function toggleSub(id) {
+      const panels = ['sub-vix','sub-hy','sub-breadth','sub-pc','sub-erp','sub-rates','sub-signals'];
+      if (openSub === id) {
+        openSub = null;
+        document.getElementById(id).style.display = 'none';
+      } else {
+        openSub = id;
+        panels.forEach(p => {
+          const el = document.getElementById(p);
+          if (el) el.style.display = p===id ? 'block' : 'none';
+        });
+      }
+      drawSubCharts(id);
+    }
+    window._dashToggle = toggleSub;
 
-    // ── breadth bar ──────────────────────────────────────────────────────
-    const brdColor = m.pctAbove200ma < 15 ? '#ef4444' : m.pctAbove200ma < 30 ? '#f59e0b' : '#10b981';
-
-    // ── put/call colour ──────────────────────────────────────────────────
-    const pcColor  = m.putCallRatio > 1.5 ? '#ef4444' : m.putCallRatio > 1.1 ? '#f59e0b' : '#10b981';
-
-    // ── ERP colours ──────────────────────────────────────────────────────
-    const erpColor = e.erp < 1.0 ? '#ef4444' : e.erp < 2.5 ? '#f59e0b' : '#10b981';
-    const erpSig   = e.erp < 1.0 ? 'overvalued' : e.erp < 2.5 ? 'warning' : 'normal';
-
-    // ── Mini sparkline helper (returns canvas id, caller must draw after inject) ──
-    function sparkId(n) { return `spark-${n}-${Date.now()}`; }
-
-    const vixSparkId  = 'spark-vix';
-    const hySparkId   = 'spark-hy';
-    const erpSparkId  = 'spark-erp';
-    const brdSparkId  = 'spark-brd';
-
+    // ── render shell ────────────────────────────────────────────────────
     el.innerHTML = `
-<!-- ═══ TOP ROW: HEADER + PANIC GAUGE ═════════════════════════════════ -->
-<div class="mb-6 flex items-start justify-between gap-4 flex-wrap">
+<!-- header -->
+<div class="mb-5 flex items-center justify-between flex-wrap gap-3">
   <div>
-    <h2 class="text-2xl font-bold text-white flex items-center gap-2">
+    <h2 class="text-xl font-bold text-white flex items-center gap-2">
       <i class="fas fa-satellite-dish text-blue-400"></i>
       Institutional Market Monitor
-      <span class="text-sm font-normal text-gray-400 ml-2">Daily Snapshot · ${m.date}</span>
+      <span class="text-xs text-gray-500 font-normal ml-1">${m.date}</span>
     </h2>
-    <p class="text-gray-400 text-sm mt-1">Sentiment & Liquidity · Panic Indicators · Valuation · ERP</p>
+    <p class="text-gray-500 text-xs mt-0.5">Click any card to expand detail sub-module</p>
   </div>
-  <!-- Panic Score Gauge -->
-  <div class="bg-gray-800/80 border border-gray-700 rounded-xl p-4 text-center min-w-[160px]">
-    <div class="text-xs text-gray-400 mb-2 font-semibold uppercase tracking-wide">Panic Score</div>
-    <div class="relative w-24 h-24 mx-auto">
-      <svg viewBox="0 0 36 36" class="w-24 h-24 -rotate-90">
-        <circle cx="18" cy="18" r="15.9155" fill="none" stroke="#374151" stroke-width="3"/>
-        <circle cx="18" cy="18" r="15.9155" fill="none" stroke="${panicColor}" stroke-width="3"
-          stroke-dasharray="${panicPct} ${100 - panicPct}" stroke-linecap="round"/>
+  <!-- panic gauge -->
+  <div class="flex items-center gap-3 bg-gray-800/80 border border-gray-700 rounded-xl px-4 py-2">
+    <div class="relative w-12 h-12">
+      <svg viewBox="0 0 36 36" class="w-12 h-12 -rotate-90">
+        <circle cx="18" cy="18" r="15.9155" fill="none" stroke="#374151" stroke-width="4"/>
+        <circle cx="18" cy="18" r="15.9155" fill="none" stroke="${panicColor}" stroke-width="4"
+          stroke-dasharray="${m.panicScore} ${100-m.panicScore}" stroke-linecap="round"/>
       </svg>
-      <div class="absolute inset-0 flex flex-col items-center justify-center">
-        <span class="text-2xl font-bold" style="color:${panicColor}">${m.panicScore}</span>
-        <span class="text-xs text-gray-400">/100</span>
+      <div class="absolute inset-0 flex items-center justify-center">
+        <span class="text-xs font-bold" style="color:${panicColor}">${m.panicScore}</span>
       </div>
     </div>
-    <div class="mt-2 text-sm font-bold" style="color:${panicColor}">${m.panicLabel}</div>
-  </div>
-</div>
-
-<!-- ═══ SECTION 1: SENTIMENT & LIQUIDITY PANIC INDICATORS ══════════════ -->
-<div class="mb-3 flex items-center gap-2">
-  <div class="w-1 h-5 bg-red-500 rounded"></div>
-  <h3 class="text-sm font-bold text-gray-200 uppercase tracking-wider">Sentiment & Liquidity — Panic Indicators</h3>
-</div>
-<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
-
-  <!-- VIX Term Structure -->
-  <div class="bg-gray-800/70 border ${signalBg(vixTSSig)} rounded-xl p-4 flex flex-col gap-2">
-    <div class="flex items-center justify-between">
-      <span class="text-xs text-gray-400 uppercase font-semibold">VIX Term Structure</span>
-      ${badge(vixTSSig)}
-    </div>
-    <div class="flex items-end gap-3 mt-1">
-      <div class="text-center">
-        <div class="text-2xl font-bold text-white">${m.vix.toFixed(1)}</div>
-        <div class="text-xs text-gray-500">Spot VIX</div>
-      </div>
-      <div class="text-gray-600 text-lg">→</div>
-      <div class="text-center">
-        <div class="text-xl font-semibold ${m.vixContango ? 'text-gray-300' : 'text-red-400'}">${m.vx1.toFixed(1)}</div>
-        <div class="text-xs text-gray-500">VX1 (1M)</div>
-      </div>
-      <div class="text-gray-600 text-lg">→</div>
-      <div class="text-center">
-        <div class="text-xl font-semibold text-gray-400">${m.vx3.toFixed(1)}</div>
-        <div class="text-xs text-gray-500">VX3 (3M)</div>
-      </div>
-    </div>
-    <div class="text-xs ${m.vixContango ? 'text-emerald-400' : 'text-red-400'} font-medium">${vixTSLabel}</div>
-    <div class="text-xs text-gray-500 mt-1">Slope: ${(m.vixTermStructure * 100).toFixed(1)}% · <b>Panic</b> when VIX > VX1</div>
-    <canvas id="${vixSparkId}" height="40" class="mt-1 w-full"></canvas>
-  </div>
-
-  <!-- HY Credit Spread -->
-  <div class="bg-gray-800/70 border ${signalBg(m.hyOasSignal)} rounded-xl p-4 flex flex-col gap-2">
-    <div class="flex items-center justify-between">
-      <span class="text-xs text-gray-400 uppercase font-semibold">HY Credit Spread (OAS)</span>
-      ${badge(m.hyOasSignal, hyLabel)}
-    </div>
-    <div class="flex items-baseline gap-2 mt-2">
-      <span class="text-3xl font-bold" style="color:${hyColor}">${m.hyOas}</span>
-      <span class="text-gray-400 text-sm">bps</span>
-    </div>
-    <!-- Threshold bar -->
-    <div class="mt-2">
-      <div class="flex justify-between text-xs text-gray-500 mb-1">
-        <span>0</span><span class="text-yellow-500">400</span><span class="text-red-500">800</span><span>1200</span>
-      </div>
-      <div class="relative h-2 bg-gray-700 rounded-full">
-        <div class="absolute h-2 rounded-full" style="width:${Math.min(m.hyOas/12,100)}%;background:${hyColor}"></div>
-        <div class="absolute top-0 h-2 w-0.5 bg-yellow-500/60" style="left:33.3%"></div>
-        <div class="absolute top-0 h-2 w-0.5 bg-red-500/60"    style="left:66.6%"></div>
-      </div>
-    </div>
-    <div class="text-xs text-gray-500">ICE BofA US HY OAS (FRED: BAMLH0A0HYM2) · <b>Distress</b> >800 bps</div>
-    <canvas id="${hySparkId}" height="40" class="mt-1 w-full"></canvas>
-  </div>
-
-  <!-- Market Breadth -->
-  <div class="bg-gray-800/70 border ${signalBg(m.breadthSignal)} rounded-xl p-4 flex flex-col gap-2">
-    <div class="flex items-center justify-between">
-      <span class="text-xs text-gray-400 uppercase font-semibold">Market Breadth (S5TH200)</span>
-      ${badge(m.breadthSignal)}
-    </div>
-    <div class="flex items-baseline gap-2 mt-2">
-      <span class="text-3xl font-bold" style="color:${brdColor}">${m.pctAbove200ma.toFixed(1)}%</span>
-      <span class="text-gray-400 text-sm">above 200 DMA</span>
-    </div>
-    <!-- Arc gauge -->
-    <div class="relative h-3 bg-gray-700 rounded-full mt-2">
-      <div class="h-3 rounded-full transition-all" style="width:${m.pctAbove200ma}%;background:${brdColor}"></div>
-      <div class="absolute top-0 h-3 w-0.5 bg-red-500/70"    style="left:15%"></div>
-      <div class="absolute top-0 h-3 w-0.5 bg-yellow-500/70" style="left:30%"></div>
-    </div>
-    <div class="flex justify-between text-xs text-gray-600 mt-0.5">
-      <span class="text-red-400">0% — Panic</span><span class="text-yellow-500">30%</span><span>100%</span>
-    </div>
-    <div class="text-xs text-gray-500">% of S&P 500 stocks above 200DMA · <b>Panic</b> <15%, <b>Warn</b> <30%</div>
-    <canvas id="${brdSparkId}" height="40" class="mt-1 w-full"></canvas>
-  </div>
-
-  <!-- Put/Call Ratio -->
-  <div class="bg-gray-800/70 border ${signalBg(m.putCallSignal)} rounded-xl p-4 flex flex-col gap-2">
-    <div class="flex items-center justify-between">
-      <span class="text-xs text-gray-400 uppercase font-semibold">CBOE Equity Put/Call</span>
-      ${badge(m.putCallSignal)}
-    </div>
-    <div class="flex items-baseline gap-2 mt-2">
-      <span class="text-3xl font-bold" style="color:${pcColor}">${m.putCallRatio.toFixed(2)}</span>
-      <span class="text-gray-400 text-sm">×</span>
-    </div>
-    <!-- Zones -->
-    <div class="grid grid-cols-3 gap-1 mt-2 text-center text-xs">
-      <div class="rounded py-1 ${m.putCallRatio < 0.8 ? 'bg-emerald-700 text-white' : 'bg-gray-700 text-gray-400'}">
-        <div>&lt;0.8</div><div class="font-semibold">Greed</div>
-      </div>
-      <div class="rounded py-1 ${m.putCallRatio >= 0.8 && m.putCallRatio < 1.1 ? 'bg-gray-500 text-white' : 'bg-gray-700 text-gray-400'}">
-        <div>0.8–1.1</div><div class="font-semibold">Neutral</div>
-      </div>
-      <div class="rounded py-1 ${m.putCallRatio >= 1.1 ? 'bg-red-700 text-white' : 'bg-gray-700 text-gray-400'}">
-        <div>&gt;1.1</div><div class="font-semibold">Fear</div>
-      </div>
-    </div>
-    <div class="text-xs text-gray-500 mt-1">CBOE Total Put Volume ÷ Call Volume · <b>Extreme fear</b> >1.5</div>
-  </div>
-</div><!-- end panic grid -->
-
-<!-- ═══ RATES ROW ══════════════════════════════════════════════════════ -->
-<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-  ${[ ['10Y Treasury', m.usTreasury10y.toFixed(2)+'%', 'DGS10 (FRED)', m.usTreasury10y > 5 ? '#ef4444' : '#6b7280'],
-      ['2Y Treasury',  m.usTreasury2y.toFixed(2)+'%',  'DGS2 (FRED)',  m.usTreasury2y > 5 ? '#ef4444' : '#6b7280'],
-      ['Yield Curve (10-2)', (m.yieldCurve > 0 ? '+':'')+m.yieldCurve+' bps', m.yieldCurveInverted ? '⚠ Inverted (recession watch)' : 'Normal', m.yieldCurveInverted ? '#f59e0b' : '#10b981'],
-      ['S&P 500 FWD P/E', '21.8×', 'vs 10Y avg 17-18×', '#f59e0b']
-    ].map(([lbl,val,sub,col]) => `
-  <div class="bg-gray-800/60 border border-gray-700/50 rounded-lg p-3">
-    <div class="text-xs text-gray-500 mb-1">${lbl}</div>
-    <div class="text-xl font-bold" style="color:${col}">${val}</div>
-    <div class="text-xs text-gray-600 mt-0.5">${sub}</div>
-  </div>`).join('')}
-</div>
-
-<!-- ═══ SECTION 2: VALUATION — ERP ════════════════════════════════════ -->
-<div class="mb-3 flex items-center gap-2">
-  <div class="w-1 h-5 bg-yellow-500 rounded"></div>
-  <h3 class="text-sm font-bold text-gray-200 uppercase tracking-wider">Equity Risk Premium — Over/Undervaluation</h3>
-</div>
-<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-
-  <!-- ERP Gauge -->
-  <div class="bg-gray-800/70 border ${signalBg(erpSig)} rounded-xl p-5 flex flex-col">
-    <div class="flex items-center justify-between mb-3">
-      <span class="text-xs text-gray-400 uppercase font-semibold">Equity Risk Premium</span>
-      ${badge(erpSig)}
-    </div>
-    <div class="flex items-baseline gap-2">
-      <span class="text-4xl font-bold" style="color:${erpColor}">${e.erp.toFixed(2)}</span>
-      <span class="text-gray-400">%</span>
-    </div>
-    <div class="text-xs text-gray-500 mt-1">= Fwd Earnings Yield ${e.sp500EarningsYield.toFixed(2)}% − 10Y Tsy ${e.usTreasury10y.toFixed(2)}%</div>
-    <div class="mt-3 grid grid-cols-3 gap-1 text-center text-xs">
-      ${[['<1%','Overvalued','bg-red-700'], ['1-3%','Fair','bg-gray-600'], ['>3%','Attractive','bg-emerald-700']].map(([r,l,c])=>`
-      <div class="rounded py-1.5 ${e.erp < 1 && r==='<1%' ? c+' text-white' : e.erp >=1 && e.erp < 3 && r==='1-3%' ? c+' text-white' : e.erp >=3 && r==='>3%' ? c+' text-white' : 'bg-gray-800 text-gray-600'}">
-        <div class="font-bold">${r}</div><div>${l}</div></div>`).join('')}
-    </div>
-    <div class="mt-3 text-xs text-gray-500">
-      Historical percentile: <span class="font-bold text-white">${e.erpHistoricalPercentile}th</span>
-      <div class="h-1.5 bg-gray-700 rounded-full mt-1">
-        <div class="h-1.5 rounded-full" style="width:${e.erpHistoricalPercentile}%;background:${erpColor}"></div>
-      </div>
-    </div>
-    <div class="mt-3 p-2 bg-gray-900/50 rounded text-xs text-gray-400 leading-relaxed">${e.erpNote}</div>
-  </div>
-
-  <!-- ERP History Chart -->
-  <div class="bg-gray-800/70 border border-gray-700/50 rounded-xl p-4 flex flex-col">
-    <div class="text-xs text-gray-400 uppercase font-semibold mb-3">ERP 60-Day Trend</div>
-    <canvas id="${erpSparkId}" class="flex-1" style="min-height:160px"></canvas>
-    <div class="flex gap-4 mt-3 text-xs text-gray-500">
-      <span class="flex items-center gap-1"><span class="w-3 h-0.5 bg-yellow-400 inline-block"></span>ERP %</span>
-      <span class="flex items-center gap-1"><span class="w-3 h-0.5 bg-red-400 inline-block"></span>1% danger</span>
-    </div>
-  </div>
-
-  <!-- VIX History Chart -->
-  <div class="bg-gray-800/70 border border-gray-700/50 rounded-xl p-4 flex flex-col">
-    <div class="text-xs text-gray-400 uppercase font-semibold mb-3">VIX Spot vs VX1 — 60D</div>
-    <canvas id="spark-vix-hist" class="flex-1" style="min-height:160px"></canvas>
-    <div class="flex gap-4 mt-3 text-xs text-gray-500">
-      <span class="flex items-center gap-1"><span class="w-3 h-0.5 bg-blue-400 inline-block"></span>VIX Spot</span>
-      <span class="flex items-center gap-1"><span class="w-3 h-0.5 bg-purple-400 inline-block"></span>VX1</span>
+    <div>
+      <div class="text-xs text-gray-500 uppercase tracking-wide">Panic Score</div>
+      <div class="text-sm font-bold" style="color:${panicColor}">${m.panicLabel}</div>
     </div>
   </div>
 </div>
 
-<!-- ═══ COMPOSITE SIGNAL TABLE ══════════════════════════════════════════ -->
-<div class="mb-3 flex items-center gap-2">
-  <div class="w-1 h-5 bg-blue-500 rounded"></div>
-  <h3 class="text-sm font-bold text-gray-200 uppercase tracking-wider">Composite Signal Summary</h3>
+<!-- ── SECTION A: SENTIMENT & LIQUIDITY ─────────────────────────────── -->
+<div class="mb-2 flex items-center gap-2">
+  <div class="w-0.5 h-4 bg-red-500 rounded"></div>
+  <span class="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Sentiment & Liquidity</span>
 </div>
-<div class="bg-gray-800/60 border border-gray-700/40 rounded-xl overflow-hidden mb-4">
-  <table class="w-full text-sm">
-    <thead><tr class="border-b border-gray-700/50 text-xs text-gray-500 uppercase">
-      <th class="py-2 px-4 text-left">Indicator</th>
-      <th class="py-2 px-4 text-right">Value</th>
-      <th class="py-2 px-4 text-center">Signal</th>
-      <th class="py-2 px-4 text-left">Threshold / Note</th>
-      <th class="py-2 px-4 text-left">Source</th>
+<div class="grid grid-cols-2 xl:grid-cols-4 gap-3 mb-1">
+
+  <!-- VIX card -->
+  <div class="cursor-pointer bg-gray-800/70 border ${sigBorder(vixTSSig)} rounded-xl p-3 hover:bg-gray-700/60 transition-colors"
+       onclick="window._dashToggle('sub-vix')">
+    <div class="flex items-start justify-between mb-2">
+      <span class="text-[10px] text-gray-500 uppercase font-semibold leading-tight">VIX Term<br>Structure</span>
+      ${pill(vixTSSig)}
+    </div>
+    <div class="flex items-baseline gap-1">
+      <span class="text-2xl font-bold text-white">${m.vix.toFixed(1)}</span>
+      <span class="text-xs text-gray-500">spot</span>
+    </div>
+    <div class="text-xs mt-1 ${m.vixContango?'text-emerald-400':'text-red-400'} font-medium">
+      ${m.vixContango ? '↗ Contango' : '↘ Backwardation ⚠'}
+    </div>
+    <div class="text-[10px] text-gray-600 mt-1">VX1 ${m.vx1.toFixed(1)} · VX3 ${m.vx3.toFixed(1)}</div>
+    <div class="text-[10px] text-gray-600 mt-0.5">tap to expand ↓</div>
+  </div>
+
+  <!-- HY OAS card -->
+  <div class="cursor-pointer bg-gray-800/70 border ${sigBorder(m.hyOasSignal)} rounded-xl p-3 hover:bg-gray-700/60 transition-colors"
+       onclick="window._dashToggle('sub-hy')">
+    <div class="flex items-start justify-between mb-2">
+      <span class="text-[10px] text-gray-500 uppercase font-semibold leading-tight">HY Credit<br>Spread OAS</span>
+      ${pill(m.hyOasSignal, hyLabel)}
+    </div>
+    <div class="flex items-baseline gap-1">
+      <span class="text-2xl font-bold" style="color:${hyColor}">${m.hyOas}</span>
+      <span class="text-xs text-gray-500">bps</span>
+    </div>
+    <div class="h-1.5 bg-gray-700 rounded-full mt-2 mb-1">
+      <div class="h-1.5 rounded-full" style="width:${Math.min(m.hyOas/12,100)}%;background:${hyColor}"></div>
+    </div>
+    <div class="text-[10px] text-gray-600">FRED BAMLH0A0HYM2 · distress >800</div>
+    <div class="text-[10px] text-gray-600 mt-0.5">tap to expand ↓</div>
+  </div>
+
+  <!-- Breadth card -->
+  <div class="cursor-pointer bg-gray-800/70 border ${sigBorder(m.breadthSignal)} rounded-xl p-3 hover:bg-gray-700/60 transition-colors"
+       onclick="window._dashToggle('sub-breadth')">
+    <div class="flex items-start justify-between mb-2">
+      <span class="text-[10px] text-gray-500 uppercase font-semibold leading-tight">Market<br>Breadth</span>
+      ${pill(m.breadthSignal)}
+    </div>
+    <div class="flex items-baseline gap-1">
+      <span class="text-2xl font-bold" style="color:${brdColor}">${m.pctAbove200ma.toFixed(1)}</span>
+      <span class="text-xs text-gray-500">% >200DMA</span>
+    </div>
+    <div class="h-1.5 bg-gray-700 rounded-full mt-2 mb-1">
+      <div class="h-1.5 rounded-full" style="width:${m.pctAbove200ma}%;background:${brdColor}"></div>
+    </div>
+    <div class="text-[10px] text-gray-600">S5TH200X · panic <15%</div>
+    <div class="text-[10px] text-gray-600 mt-0.5">tap to expand ↓</div>
+  </div>
+
+  <!-- Put/Call card -->
+  <div class="cursor-pointer bg-gray-800/70 border ${sigBorder(m.putCallSignal)} rounded-xl p-3 hover:bg-gray-700/60 transition-colors"
+       onclick="window._dashToggle('sub-pc')">
+    <div class="flex items-start justify-between mb-2">
+      <span class="text-[10px] text-gray-500 uppercase font-semibold leading-tight">CBOE<br>Put/Call</span>
+      ${pill(m.putCallSignal)}
+    </div>
+    <div class="flex items-baseline gap-1">
+      <span class="text-2xl font-bold" style="color:${pcColor}">${m.putCallRatio.toFixed(2)}</span>
+      <span class="text-xs text-gray-500">×</span>
+    </div>
+    <div class="grid grid-cols-3 gap-0.5 mt-2 text-[10px] text-center">
+      <div class="rounded py-0.5 ${m.putCallRatio<0.8?'bg-emerald-700 text-white':'bg-gray-700 text-gray-500'}">Greed<br>&lt;0.8</div>
+      <div class="rounded py-0.5 ${m.putCallRatio>=0.8&&m.putCallRatio<1.1?'bg-gray-500 text-white':'bg-gray-700 text-gray-500'}">Neutral<br>0.8-1.1</div>
+      <div class="rounded py-0.5 ${m.putCallRatio>=1.1?'bg-red-700 text-white':'bg-gray-700 text-gray-500'}">Fear<br>&gt;1.1</div>
+    </div>
+    <div class="text-[10px] text-gray-600 mt-1">tap to expand ↓</div>
+  </div>
+</div>
+
+<!-- sub-module: VIX -->
+<div id="sub-vix" style="display:none" class="mb-3 bg-gray-900/60 border border-gray-700/60 rounded-xl p-4">
+  <div class="flex items-center justify-between mb-3">
+    <span class="text-xs font-bold text-gray-300 uppercase">VIX Term Structure — 60-Day Detail</span>
+    <button onclick="window._dashToggle('sub-vix')" class="text-gray-600 hover:text-gray-300 text-xs">✕ close</button>
+  </div>
+  <div class="grid grid-cols-3 gap-3 mb-3">
+    ${[['Spot VIX', m.vix.toFixed(1), 'Yahoo Finance'], ['VX1 (1M Future)', m.vx1.toFixed(1), 'CBOE VX Futures'], ['VX3 (3M Future)', m.vx3.toFixed(1), 'CBOE VX Futures']].map(([l,v,s])=>`
+    <div class="bg-gray-800/60 rounded-lg p-3 text-center">
+      <div class="text-xs text-gray-500">${l}</div>
+      <div class="text-xl font-bold text-white mt-1">${v}</div>
+      <div class="text-[10px] text-gray-600 mt-0.5">${s}</div>
+    </div>`).join('')}
+  </div>
+  <div class="grid grid-cols-2 gap-3 mb-3">
+    <div class="bg-gray-800/40 rounded-lg p-3">
+      <div class="text-[10px] text-gray-500 mb-1">Term Slope (VX1−Spot)/Spot</div>
+      <div class="text-lg font-bold ${m.vixContango?'text-emerald-400':'text-red-400'}">${(m.vixTermStructure*100).toFixed(1)}%</div>
+      <div class="text-[10px] ${m.vixContango?'text-emerald-500':'text-red-500'} mt-0.5">${m.vixContango?'Contango — market calm':'Backwardation — PANIC signal'}</div>
+    </div>
+    <div class="bg-gray-800/40 rounded-lg p-3">
+      <div class="text-[10px] text-gray-500 mb-1">Panic Trigger</div>
+      <div class="text-xs text-gray-300 leading-relaxed">VIX &gt; VX1 = backwardation.<br>Investors pay premium for near-term protection over long-term → extreme fear of imminent crash.</div>
+    </div>
+  </div>
+  <canvas id="sub-vix-chart" height="90"></canvas>
+</div>
+
+<!-- sub-module: HY OAS -->
+<div id="sub-hy" style="display:none" class="mb-3 bg-gray-900/60 border border-gray-700/60 rounded-xl p-4">
+  <div class="flex items-center justify-between mb-3">
+    <span class="text-xs font-bold text-gray-300 uppercase">HY Credit Spread — 60-Day Detail</span>
+    <button onclick="window._dashToggle('sub-hy')" class="text-gray-600 hover:text-gray-300 text-xs">✕ close</button>
+  </div>
+  <div class="grid grid-cols-4 gap-2 mb-3 text-center text-xs">
+    ${[['Current OAS', m.hyOas+' bps', hyColor], ['Signal', hyLabel, hyColor],
+       ['Caution Level', '400 bps', '#f59e0b'], ['Distress Level', '800 bps', '#ef4444']].map(([l,v,c])=>`
+    <div class="bg-gray-800/60 rounded-lg p-2">
+      <div class="text-gray-500 text-[10px]">${l}</div>
+      <div class="font-bold mt-0.5" style="color:${c}">${v}</div>
+    </div>`).join('')}
+  </div>
+  <div class="mb-3 text-xs text-gray-400 bg-gray-800/40 rounded-lg p-3 leading-relaxed">
+    <b class="text-gray-200">Reading:</b> OAS below 400 bps with falling markets = liquidity storm (investors refuse to sell risk even at distressed prices). OAS above 800 bps = genuine credit distress, default cycle begins. Current ${m.hyOas} bps = <b style="color:${hyColor}">${hyLabel}</b>.
+  </div>
+  <canvas id="sub-hy-chart" height="90"></canvas>
+</div>
+
+<!-- sub-module: Breadth -->
+<div id="sub-breadth" style="display:none" class="mb-3 bg-gray-900/60 border border-gray-700/60 rounded-xl p-4">
+  <div class="flex items-center justify-between mb-3">
+    <span class="text-xs font-bold text-gray-300 uppercase">Market Breadth (S5TH200) — 60-Day Detail</span>
+    <button onclick="window._dashToggle('sub-breadth')" class="text-gray-600 hover:text-gray-300 text-xs">✕ close</button>
+  </div>
+  <div class="grid grid-cols-3 gap-2 mb-3 text-center text-xs">
+    ${[['Current', m.pctAbove200ma.toFixed(1)+'%', brdColor], ['Panic Zone', '<15%', '#ef4444'], ['Warning Zone', '<30%', '#f59e0b']].map(([l,v,c])=>`
+    <div class="bg-gray-800/60 rounded-lg p-2">
+      <div class="text-gray-500 text-[10px]">${l}</div>
+      <div class="font-bold mt-0.5" style="color:${c}">${v}</div>
+    </div>`).join('')}
+  </div>
+  <div class="mb-3 text-xs text-gray-400 bg-gray-800/40 rounded-lg p-3 leading-relaxed">
+    <b class="text-gray-200">Reading:</b> % of S&P 500 stocks trading above their 200-day SMA. Below 15% historically marks major market bottoms (COVID Mar 2020: 3%, GFC 2009: 2%). Above 70% = healthy uptrend, below 30% = broad deterioration even if index holds near highs.
+  </div>
+  <canvas id="sub-brd-chart" height="90"></canvas>
+</div>
+
+<!-- sub-module: Put/Call -->
+<div id="sub-pc" style="display:none" class="mb-3 bg-gray-900/60 border border-gray-700/60 rounded-xl p-4">
+  <div class="flex items-center justify-between mb-3">
+    <span class="text-xs font-bold text-gray-300 uppercase">CBOE Put/Call Ratio — Interpretation</span>
+    <button onclick="window._dashToggle('sub-pc')" class="text-gray-600 hover:text-gray-300 text-xs">✕ close</button>
+  </div>
+  <div class="grid grid-cols-3 gap-2 mb-3 text-xs text-center">
+    ${[['<0.7 — Complacency','Contrarian bearish\nMarket overconfident','bg-emerald-900/40 border-emerald-600/30'],
+       ['0.7–1.1 — Neutral','Normal hedging activity\nNo extreme signal','bg-gray-800/60 border-gray-600/30'],
+       ['>1.1 — Fear Zone','Contrarian bullish\nBuy-the-Dip opportunity','bg-red-900/30 border-red-600/30']].map(([t,d,c])=>`
+    <div class="border rounded-lg p-2 ${c} ${m.putCallRatio<0.7&&t.startsWith('<')?'ring-1 ring-white/30':m.putCallRatio>=0.7&&m.putCallRatio<1.1&&t.startsWith('0')?'ring-1 ring-white/30':m.putCallRatio>=1.1&&t.startsWith('>')? 'ring-1 ring-white/30':''}">
+      <div class="font-bold text-gray-200 mb-1">${t}</div>
+      <div class="text-gray-400 text-[10px]">${d}</div>
+    </div>`).join('')}
+  </div>
+  <div class="text-xs text-gray-400 bg-gray-800/40 rounded-lg p-3">
+    Current: <b style="color:${pcColor}">${m.putCallRatio.toFixed(2)}×</b> — ${m.putCallRatio>=1.1?'Elevated fear → contrarian buy signal forming':m.putCallRatio<0.7?'Complacency → contrarian caution':'Normal hedging, no extreme signal'}. CBOE Equity Put/Call only (excludes index options for cleaner sentiment read).
+  </div>
+</div>
+
+<!-- ── SECTION B: VALUATION ──────────────────────────────────────────── -->
+<div class="mb-2 mt-4 flex items-center gap-2">
+  <div class="w-0.5 h-4 bg-yellow-500 rounded"></div>
+  <span class="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Valuation</span>
+</div>
+<div class="grid grid-cols-2 xl:grid-cols-4 gap-3 mb-1">
+
+  <!-- ERP card -->
+  <div class="cursor-pointer bg-gray-800/70 border ${sigBorder(erpSig)} rounded-xl p-3 hover:bg-gray-700/60 transition-colors"
+       onclick="window._dashToggle('sub-erp')">
+    <div class="flex items-start justify-between mb-2">
+      <span class="text-[10px] text-gray-500 uppercase font-semibold leading-tight">Equity Risk<br>Premium</span>
+      ${pill(erpSig)}
+    </div>
+    <div class="flex items-baseline gap-1">
+      <span class="text-2xl font-bold" style="color:${erpColor}">${e.erp.toFixed(2)}</span>
+      <span class="text-xs text-gray-500">%</span>
+    </div>
+    <div class="text-[10px] text-gray-500 mt-1">Earn yield ${e.sp500EarningsYield.toFixed(2)}% − 10Y ${e.usTreasury10y.toFixed(2)}%</div>
+    <div class="text-[10px] text-gray-600 mt-0.5">${e.erpHistoricalPercentile}th pctile · tap to expand ↓</div>
+  </div>
+
+  <!-- Rates card -->
+  <div class="cursor-pointer bg-gray-800/70 border border-gray-600/40 rounded-xl p-3 hover:bg-gray-700/60 transition-colors"
+       onclick="window._dashToggle('sub-rates')">
+    <div class="flex items-start justify-between mb-2">
+      <span class="text-[10px] text-gray-500 uppercase font-semibold leading-tight">US Rates &<br>Yield Curve</span>
+      ${pill(m.yieldCurveInverted?'warning':'normal', m.yieldCurveInverted?'Inverted':'Normal')}
+    </div>
+    <div class="flex items-baseline gap-1">
+      <span class="text-2xl font-bold ${m.usTreasury10y>5?'text-red-400':'text-white'}">${m.usTreasury10y.toFixed(2)}</span>
+      <span class="text-xs text-gray-500">% 10Y</span>
+    </div>
+    <div class="text-[10px] text-gray-500 mt-1">2Y ${m.usTreasury2y.toFixed(2)}% · Spread ${m.yieldCurve>0?'+':''}${m.yieldCurve} bps</div>
+    <div class="text-[10px] text-gray-600 mt-0.5">tap to expand ↓</div>
+  </div>
+
+  <!-- SPX valuation card -->
+  <div class="cursor-pointer bg-gray-800/70 border border-yellow-500/30 rounded-xl p-3 hover:bg-gray-700/60 transition-colors"
+       onclick="window._dashToggle('sub-signals')">
+    <div class="flex items-start justify-between mb-2">
+      <span class="text-[10px] text-gray-500 uppercase font-semibold leading-tight">SPX<br>Valuation</span>
+      ${pill('warning', 'Rich')}
+    </div>
+    <div class="flex items-baseline gap-1">
+      <span class="text-2xl font-bold text-yellow-400">21.8</span>
+      <span class="text-xs text-gray-500">× fwd P/E</span>
+    </div>
+    <div class="text-[10px] text-gray-500 mt-1">vs 10Y avg 17–18×</div>
+    <div class="text-[10px] text-gray-600 mt-0.5">tap to expand ↓</div>
+  </div>
+
+  <!-- Composite score card -->
+  <div class="bg-gray-800/70 border border-gray-600/40 rounded-xl p-3">
+    <div class="text-[10px] text-gray-500 uppercase font-semibold mb-2">Composite Regime</div>
+    <div class="text-2xl font-bold text-blue-400">${m.panicScore < 20 ? 'RISK-ON' : m.panicScore < 50 ? 'NEUTRAL' : 'RISK-OFF'}</div>
+    <div class="text-[10px] text-gray-500 mt-1">Panic ${m.panicScore} · ERP ${e.erp.toFixed(2)}%</div>
+    <div class="mt-2 space-y-1">
+      ${[['Sentiment', 100-m.panicScore, '#60a5fa'],['Valuation', Math.max(0,Math.min(100,e.erp*20)), '#facc15'],['Breadth', m.pctAbove200ma, '#34d399']].map(([l,v,c])=>`
+      <div class="flex items-center gap-1.5 text-[10px]">
+        <span class="text-gray-600 w-16">${l}</span>
+        <div class="flex-1 h-1 bg-gray-700 rounded-full">
+          <div class="h-1 rounded-full" style="width:${v}%;background:${c}"></div>
+        </div>
+        <span class="text-gray-500 w-6 text-right">${Math.round(v)}</span>
+      </div>`).join('')}
+    </div>
+  </div>
+</div>
+
+<!-- sub-module: ERP -->
+<div id="sub-erp" style="display:none" class="mb-3 bg-gray-900/60 border border-gray-700/60 rounded-xl p-4">
+  <div class="flex items-center justify-between mb-3">
+    <span class="text-xs font-bold text-gray-300 uppercase">Equity Risk Premium — Detail</span>
+    <button onclick="window._dashToggle('sub-erp')" class="text-gray-600 hover:text-gray-300 text-xs">✕ close</button>
+  </div>
+  <div class="grid grid-cols-4 gap-2 mb-3 text-center text-xs">
+    ${[['ERP', e.erp.toFixed(2)+'%', erpColor], ['Earn Yield', e.sp500EarningsYield.toFixed(2)+'%', '#d1d5db'],
+       ['10Y Tsy', e.usTreasury10y.toFixed(2)+'%', '#d1d5db'], ['Hist Pctile', e.erpHistoricalPercentile+'th', erpColor]].map(([l,v,c])=>`
+    <div class="bg-gray-800/60 rounded-lg p-2">
+      <div class="text-gray-500 text-[10px]">${l}</div>
+      <div class="font-bold mt-0.5" style="color:${c}">${v}</div>
+    </div>`).join('')}
+  </div>
+  <div class="grid grid-cols-3 gap-1 mb-3 text-xs text-center">
+    ${[['<1%','Overvalued','bg-red-900/40 border-red-500/40'],['1–3%','Fair Value','bg-gray-800 border-gray-600/40'],['>3%','Attractive','bg-emerald-900/40 border-emerald-500/40']].map(([r,l,c])=>`
+    <div class="border ${c} rounded-lg p-2 ${(r==='<1%'&&e.erp<1)||(r==='1–3%'&&e.erp>=1&&e.erp<3)||(r==='>3%'&&e.erp>=3)?'ring-1 ring-white/20':''}">
+      <div class="font-bold text-gray-200">${r}</div><div class="text-gray-400 text-[10px]">${l}</div>
+    </div>`).join('')}
+  </div>
+  <div class="text-xs text-gray-400 bg-gray-800/40 rounded-lg p-3 mb-3 leading-relaxed">${e.erpNote}</div>
+  <canvas id="sub-erp-chart" height="90"></canvas>
+</div>
+
+<!-- sub-module: Rates -->
+<div id="sub-rates" style="display:none" class="mb-3 bg-gray-900/60 border border-gray-700/60 rounded-xl p-4">
+  <div class="flex items-center justify-between mb-3">
+    <span class="text-xs font-bold text-gray-300 uppercase">US Treasury Rates & Yield Curve</span>
+    <button onclick="window._dashToggle('sub-rates')" class="text-gray-600 hover:text-gray-300 text-xs">✕ close</button>
+  </div>
+  <div class="grid grid-cols-4 gap-2 mb-3 text-center text-xs">
+    ${[['Fed Funds','5.25–5.50%','#d1d5db'],['2Y Tsy',m.usTreasury2y.toFixed(2)+'%',m.usTreasury2y>5?'#ef4444':'#d1d5db'],
+       ['10Y Tsy',m.usTreasury10y.toFixed(2)+'%',m.usTreasury10y>5?'#ef4444':'#d1d5db'],['10Y−2Y',(m.yieldCurve>0?'+':'')+m.yieldCurve+' bps',m.yieldCurveInverted?'#f59e0b':'#10b981']].map(([l,v,c])=>`
+    <div class="bg-gray-800/60 rounded-lg p-2">
+      <div class="text-gray-500 text-[10px]">${l}</div>
+      <div class="font-bold mt-0.5" style="color:${c}">${v}</div>
+    </div>`).join('')}
+  </div>
+  <div class="text-xs text-gray-400 bg-gray-800/40 rounded-lg p-3 leading-relaxed">
+    <b class="text-gray-200">Yield curve ${m.yieldCurveInverted?'INVERTED':'normal'}.</b> ${m.yieldCurveInverted?'10Y−2Y inversion has preceded every US recession since 1970. Current inversion reduces discount rates for long-duration growth stocks, but signals higher probability of earnings recession in 6–18 months.':'Positively sloped curve. Growth expectations intact; no imminent recession signal from bond market.'} FRED sources: DGS10, DGS2.
+  </div>
+</div>
+
+<!-- sub-module: Composite Signals table -->
+<div id="sub-signals" style="display:none" class="mb-3 bg-gray-900/60 border border-gray-700/60 rounded-xl p-4">
+  <div class="flex items-center justify-between mb-3">
+    <span class="text-xs font-bold text-gray-300 uppercase">Composite Signal Summary — All Indicators</span>
+    <button onclick="window._dashToggle('sub-signals')" class="text-gray-600 hover:text-gray-300 text-xs">✕ close</button>
+  </div>
+  <div class="overflow-x-auto">
+  <table class="w-full text-xs">
+    <thead><tr class="border-b border-gray-700/50 text-[10px] text-gray-500 uppercase">
+      <th class="py-1.5 px-3 text-left">Indicator</th>
+      <th class="py-1.5 px-3 text-right">Value</th>
+      <th class="py-1.5 px-3 text-center">Signal</th>
+      <th class="py-1.5 px-3 text-left hidden md:table-cell">Threshold</th>
+      <th class="py-1.5 px-3 text-left hidden md:table-cell">Source</th>
     </tr></thead>
     <tbody class="divide-y divide-gray-700/30">
-      ${[
-        ['VIX Spot', m.vix.toFixed(1), vixTSSig, 'Backwardation (VIX > VX1) = Panic', 'Yahoo Finance'],
-        ['VIX Term Slope', (m.vixTermStructure*100).toFixed(1)+'%', vixTSSig, '< 0 means contango (calm)', 'VX Futures'],
-        ['HY OAS Spread', m.hyOas+' bps', m.hyOasSignal, '>400 caution · >800 distress', 'FRED BAMLH0A0HYM2'],
-        ['Market Breadth', m.pctAbove200ma.toFixed(1)+'%', m.breadthSignal, '<15% panic · <30% warning', 'S5TH200X'],
-        ['Put/Call Ratio', m.putCallRatio.toFixed(2)+'×', m.putCallSignal, '>1.1 fear · >1.5 extreme fear', 'CBOE Equity'],
-        ['10Y–2Y Spread', m.yieldCurve+' bps', m.yieldCurveInverted ? 'warning' : 'normal', 'Inversion = recession watch', 'FRED DGS10/DGS2'],
-        ['ERP (Eq. Risk Prem)', e.erp.toFixed(2)+'%', erpSig, '<1% overvalued · <1.5% caution', 'FWD P/E − 10Y'],
-        ['ERP Percentile', e.erpHistoricalPercentile+'th', erpSig, 'Bottom 10% = bubble territory', 'Historical'],
-      ].map(([ind, val, sig, note, src]) => `
-      <tr class="hover:bg-gray-700/20">
-        <td class="py-2 px-4 text-gray-300 font-medium">${ind}</td>
-        <td class="py-2 px-4 text-right font-mono font-bold" style="color:${signalColor(sig)}">${val}</td>
-        <td class="py-2 px-4 text-center">${badge(sig)}</td>
-        <td class="py-2 px-4 text-gray-500 text-xs">${note}</td>
-        <td class="py-2 px-4 text-gray-600 text-xs">${src}</td>
-      </tr>`).join('')}
+    ${[
+      ['VIX Spot', m.vix.toFixed(1), vixTSSig, 'Backwardation = Panic', 'Yahoo Finance'],
+      ['VIX Term Slope', (m.vixTermStructure*100).toFixed(1)+'%', vixTSSig, '<0 = contango (calm)', 'VX Futures'],
+      ['HY OAS', m.hyOas+' bps', m.hyOasSignal, '>400 caution · >800 distress', 'FRED BAMLH0A0HYM2'],
+      ['Market Breadth', m.pctAbove200ma.toFixed(1)+'%', m.breadthSignal, '<15% panic · <30% warn', 'S5TH200X'],
+      ['Put/Call Ratio', m.putCallRatio.toFixed(2)+'×', m.putCallSignal, '>1.1 fear · >1.5 extreme', 'CBOE Equity'],
+      ['10Y−2Y Spread', (m.yieldCurve>0?'+':'')+m.yieldCurve+' bps', m.yieldCurveInverted?'warning':'normal', 'Inversion = recession watch', 'FRED DGS10/DGS2'],
+      ['ERP', e.erp.toFixed(2)+'%', erpSig, '<1% overvalued · <1.5% caution', 'Fwd P/E − 10Y'],
+      ['ERP Pctile', e.erpHistoricalPercentile+'th', erpSig, 'Bottom 10% = bubble', 'Historical'],
+      ['SPX Fwd P/E', '21.8×', 'warning', '>20× historically expensive', 'FactSet consensus'],
+    ].map(([ind,val,sig,note,src])=>`
+    <tr class="hover:bg-gray-800/40">
+      <td class="py-1.5 px-3 text-gray-300">${ind}</td>
+      <td class="py-1.5 px-3 text-right font-mono font-bold" style="color:${sigColor(sig)}">${val}</td>
+      <td class="py-1.5 px-3 text-center">
+        <span class="${{panic:'bg-red-500',distress:'bg-red-500',overvalued:'bg-red-500',warning:'bg-yellow-500',elevated:'bg-yellow-500',undervalued:'bg-emerald-500',normal:'bg-gray-600',neutral:'bg-gray-600'}[sig]||'bg-gray-600'} text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full uppercase">${sig}</span>
+      </td>
+      <td class="py-1.5 px-3 text-gray-600 hidden md:table-cell">${note}</td>
+      <td class="py-1.5 px-3 text-gray-700 hidden md:table-cell">${src}</td>
+    </tr>`).join('')}
     </tbody>
   </table>
+  </div>
 </div>
 `;
 
-    // ── Draw sparklines & charts ────────────────────────────────────────
-    // VIX spot sparkline (last 30 from history)
-    const vixData = macH.slice(-30);
-    if (vixData.length && document.getElementById(vixSparkId)) {
-      new Chart(document.getElementById(vixSparkId), {
-        type: 'line',
-        data: { labels: vixData.map(d => d.date),
-                datasets: [{ data: vixData.map(d => d.vix), borderColor: '#60a5fa',
-                             borderWidth: 1.5, pointRadius: 0, tension: 0.4, fill: false }] },
-        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
-                   scales: { x: { display: false }, y: { display: false } } }
-      });
-    }
+    // ── draw charts when sub-modules open ──────────────────────────────
+    window._dashDrawn = {};
+    window._dashData  = { macH, erpH, m, e };
 
-    // HY OAS sparkline
-    if (macH.length && document.getElementById(hySparkId)) {
-      const hyData = macH.slice(-30);
-      new Chart(document.getElementById(hySparkId), {
-        type: 'line',
-        data: { labels: hyData.map(d => d.date),
-                datasets: [{ data: hyData.map(d => d.hyOas), borderColor: hyColor,
-                             borderWidth: 1.5, pointRadius: 0, tension: 0.4, fill: false }] },
-        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
-                   scales: { x: { display: false }, y: { display: false } } }
-      });
-    }
+    function drawSubCharts(id) {
+      if (window._dashDrawn[id]) return;
+      window._dashDrawn[id] = true;
+      const { macH, erpH } = window._dashData;
 
-    // Breadth sparkline
-    if (macH.length && document.getElementById(brdSparkId)) {
-      const brd = macH.slice(-30);
-      new Chart(document.getElementById(brdSparkId), {
-        type: 'line',
-        data: { labels: brd.map(d => d.date),
-                datasets: [{ data: brd.map(d => d.pctAbove200ma), borderColor: brdColor,
-                             borderWidth: 1.5, pointRadius: 0, tension: 0.4, fill: false }] },
-        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
-                   scales: { x: { display: false }, y: { display: false, min: 0, max: 100 } } }
-      });
-    }
+      setTimeout(() => {
+        const chartDefs = {
+          'sub-vix':    { canvasId:'sub-vix-chart',  datasets:[
+            { data: macH.map(d=>d.vix),  borderColor:'#60a5fa', label:'VIX Spot' },
+            { data: macH.map(d=>d.vx1),  borderColor:'#a78bfa', label:'VX1', borderDash:[3,2] }
+          ], labels: macH.map(d=>d.date) },
+          'sub-hy':     { canvasId:'sub-hy-chart',   datasets:[
+            { data: macH.map(d=>d.hyOas), borderColor: hyColor, label:'HY OAS (bps)' }
+          ], labels: macH.map(d=>d.date), refLines:[{y:400,color:'#f59e0b',label:'Caution'},{y:800,color:'#ef4444',label:'Distress'}] },
+          'sub-breadth':{ canvasId:'sub-brd-chart',  datasets:[
+            { data: macH.map(d=>d.pctAbove200ma), borderColor: brdColor, label:'% >200DMA' }
+          ], labels: macH.map(d=>d.date), refLines:[{y:15,color:'#ef4444',label:'Panic'},{y:30,color:'#f59e0b',label:'Warn'}] },
+          'sub-erp':    { canvasId:'sub-erp-chart',  datasets:[
+            { data: erpH.map(d=>d.erp), borderColor:'#facc15', label:'ERP %' }
+          ], labels: erpH.map(d=>d.date), refLines:[{y:1,color:'#ef4444',label:'1% danger'}] }
+        };
+        const def = chartDefs[id];
+        if (!def) return;
+        const canvas = document.getElementById(def.canvasId);
+        if (!canvas) return;
 
-    // ERP 60-day trend
-    if (erpH.length && document.getElementById(erpSparkId)) {
-      new Chart(document.getElementById(erpSparkId), {
-        type: 'line',
-        data: {
-          labels: erpH.map(d => d.date),
-          datasets: [
-            { label: 'ERP %', data: erpH.map(d => d.erp),
-              borderColor: '#facc15', borderWidth: 2, pointRadius: 0, tension: 0.4, fill: false },
-            { label: '1% danger', data: erpH.map(() => 1.0),
-              borderColor: '#ef4444', borderWidth: 1, borderDash: [4, 3], pointRadius: 0, fill: false }
-          ]
-        },
-        options: {
-          responsive: true, maintainAspectRatio: false,
-          plugins: { legend: { display: false } },
-          scales: {
-            x: { display: false },
-            y: { ticks: { color: '#6b7280', font: { size: 9 } }, grid: { color: '#374151' } }
-          }
+        const datasets = def.datasets.map((ds,i) => ({
+          label: ds.label, data: ds.data, borderColor: ds.borderColor,
+          borderWidth: 1.5, pointRadius: 0, tension: 0.4, fill: false,
+          borderDash: ds.borderDash || []
+        }));
+        if (def.refLines) {
+          def.refLines.forEach(rl => datasets.push({
+            label: rl.label, data: def.labels.map(()=>rl.y),
+            borderColor: rl.color, borderWidth: 1, borderDash:[4,3],
+            pointRadius: 0, fill: false
+          }));
         }
-      });
+        new Chart(canvas, {
+          type: 'line',
+          data: { labels: def.labels, datasets },
+          options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { labels: { color:'#9ca3af', font:{size:9}, boxWidth:12 } } },
+            scales: {
+              x: { display: false },
+              y: { ticks:{color:'#6b7280',font:{size:9}}, grid:{color:'#1f2937'} }
+            }
+          }
+        });
+      }, 30);
     }
 
-    // VIX vs VX1 60-day
-    if (macH.length && document.getElementById('spark-vix-hist')) {
-      new Chart(document.getElementById('spark-vix-hist'), {
-        type: 'line',
-        data: {
-          labels: macH.map(d => d.date),
-          datasets: [
-            { label: 'VIX', data: macH.map(d => d.vix),
-              borderColor: '#60a5fa', borderWidth: 2, pointRadius: 0, tension: 0.4, fill: false },
-            { label: 'VX1', data: macH.map(d => d.vx1),
-              borderColor: '#a78bfa', borderWidth: 2, pointRadius: 0, tension: 0.4, fill: false, borderDash: [3, 2] }
-          ]
-        },
-        options: {
-          responsive: true, maintainAspectRatio: false,
-          plugins: { legend: { display: false } },
-          scales: {
-            x: { display: false },
-            y: { ticks: { color: '#6b7280', font: { size: 9 } }, grid: { color: '#374151' } }
-          }
-        }
-      });
-    }
+    // expose for the toggle function
+    window._dashDrawSub = drawSubCharts;
+    // patch toggle to also draw
+    const origToggle = window._dashToggle;
+    window._dashToggle = function(id) {
+      origToggle(id);
+      if (openSub === id || document.getElementById(id)?.style.display !== 'none') {
+        window._dashDrawSub(id);
+      }
+    };
 
   } catch(err) {
-    el.innerHTML = `<div class="text-red-400 p-6">Error loading dashboard: ${err.message}</div>`;
+    el.innerHTML = `<div class="text-red-400 p-6">Error: ${err.message}</div>`;
     console.error(err);
   }
 }
@@ -510,8 +593,7 @@ async function renderDashboard(el) {
 // ╚══════════════════════════════════════════════════════════════════════╝
 async function renderDataCenter(el) {
   el.innerHTML = `<div class="flex items-center justify-center h-32 text-gray-400">
-    <i class="fas fa-spinner fa-spin mr-2"></i>Loading data center…</div>`;
-
+    <i class="fas fa-spinner fa-spin mr-2"></i>Loading…</div>`;
   try {
     const [fundRes, erpRes, healthRes, macroRes] = await Promise.all([
       axios.get(`${API}/api/dc/fundamental`),
@@ -520,330 +602,340 @@ async function renderDataCenter(el) {
       axios.get(`${API}/api/dc/macro/current`)
     ]);
     const stocks = fundRes.data.data || [];
-    const e = erpRes.data;
+    const e      = erpRes.data;
     const health = healthRes.data;
-    const m = macroRes.data;
+    const m      = macroRes.data;
+    const srcs   = health.dataSources || [];
 
-    // ── active tab state ────────────────────────────────────────────────
-    let dcTab = 'valuation';
+    // ── colour helpers ──────────────────────────────────────────────────
+    const evColor  = p => p<=10?'#10b981':p<=30?'#6ee7b7':p>=80?'#ef4444':'#d1d5db';
+    const fcfColor = v => v>=6?'#10b981':v>=3?'#fbbf24':'#ef4444';
+    const levColor = v => v>3?'#ef4444':v>2?'#f59e0b':'#10b981';
 
-    function renderDCContent() {
-      const tabContent = document.getElementById('dc-tab-content');
-      if (!tabContent) return;
-
-      if (dcTab === 'valuation') {
-        // Sort by EV/EBITDA ascending (cheapest first)
-        const sorted = [...stocks].sort((a, b) => a.evEbitda - b.evEbitda);
-        tabContent.innerHTML = `
-<div class="mb-3 p-3 bg-blue-900/20 border border-blue-500/30 rounded-lg text-xs text-blue-300">
-  <i class="fas fa-info-circle mr-1"></i>
-  ${fundRes.data.gaapAdjustmentNote} · All data is Point-in-Time (PIT) compliant — last filing date shown.
-</div>
-<div class="overflow-x-auto">
-<table class="w-full text-xs">
-  <thead><tr class="border-b border-gray-700/50 text-gray-500 uppercase text-xs">
-    <th class="py-2 px-3 text-left">Ticker</th>
-    <th class="py-2 px-3 text-left">Sector</th>
-    <th class="py-2 px-3 text-right">Mkt Cap ($B)</th>
-    <th class="py-2 px-3 text-right">EV ($B)</th>
-    <th class="py-2 px-3 text-right">Adj EBITDA</th>
-    <th class="py-2 px-3 text-right">EV/EBITDA</th>
-    <th class="py-2 px-3 text-right">Pctile</th>
-    <th class="py-2 px-3 text-right">EV/Sales</th>
-    <th class="py-2 px-3 text-right">Fwd P/E</th>
-    <th class="py-2 px-3 text-right">FCF Yield</th>
-    <th class="py-2 px-3 text-right">Net Lev</th>
-    <th class="py-2 px-3 text-center">PIT Date</th>
-  </tr></thead>
-  <tbody class="divide-y divide-gray-700/25">
-  ${sorted.map(s => {
-    const evEbColor = s.evEbitdaPercentile <= 10 ? '#10b981' : s.evEbitdaPercentile <= 30 ? '#6ee7b7' :
-                      s.evEbitdaPercentile >= 80 ? '#ef4444' : '#d1d5db';
-    const fcfColor  = s.fcfYield >= 6 ? '#10b981' : s.fcfYield >= 3 ? '#fbbf24' : '#ef4444';
-    const levColor  = s.netLeverage > 3 ? '#ef4444' : s.netLeverage > 2 ? '#f59e0b' : '#10b981';
-    const pitBadge  = s.pitCompliant
-      ? '<span class="text-emerald-400 text-xs">✓ PIT</span>'
-      : '<span class="text-red-400 text-xs">⚠ Lag</span>';
-    const undervalFlag = s.evEbitdaPercentile <= 10 && s.fcfYield > 4
-      ? '<span class="ml-1 bg-emerald-600 text-white text-xs px-1 py-0.5 rounded">★ Value</span>' : '';
-    return `<tr class="hover:bg-gray-700/20 ${s.evEbitdaPercentile <= 10 ? 'bg-emerald-900/10' : ''}">
-      <td class="py-2 px-3 font-bold text-white">${s.ticker}${undervalFlag}</td>
-      <td class="py-2 px-3 text-gray-400 max-w-[120px] truncate" title="${s.sector}">${s.name}</td>
-      <td class="py-2 px-3 text-right text-gray-300">$${s.marketCap.toLocaleString()}</td>
-      <td class="py-2 px-3 text-right text-gray-300">$${s.ev.toLocaleString()}</td>
-      <td class="py-2 px-3 text-right text-gray-300">$${s.adjustedEbitda.toFixed(1)}B</td>
-      <td class="py-2 px-3 text-right font-bold" style="color:${evEbColor}">${s.evEbitda.toFixed(1)}×</td>
-      <td class="py-2 px-3 text-right">
-        <span class="text-xs font-semibold" style="color:${evEbColor}">${s.evEbitdaPercentile}%ile</span>
-      </td>
-      <td class="py-2 px-3 text-right text-gray-400">${s.evSales.toFixed(1)}×</td>
-      <td class="py-2 px-3 text-right text-gray-400">${s.forwardPE.toFixed(1)}×</td>
-      <td class="py-2 px-3 text-right font-semibold" style="color:${fcfColor}">${s.fcfYield.toFixed(1)}%</td>
-      <td class="py-2 px-3 text-right font-semibold" style="color:${levColor}">${s.netLeverage.toFixed(1)}×</td>
-      <td class="py-2 px-3 text-center">${pitBadge}<div class="text-gray-600 text-xs">${s.lastReportDate}</div></td>
-    </tr>`;
-  }).join('')}
-  </tbody>
-</table></div>
-
-<!-- Undervaluation Signals -->
-<div class="mt-4">
-  <div class="mb-2 flex items-center gap-2">
-    <div class="w-1 h-4 bg-emerald-500 rounded"></div>
-    <span class="text-xs font-bold text-gray-300 uppercase">Undervaluation Signals — EV/EBITDA ≤10th Pctile + FCF Yield >4% + Low Leverage</span>
-  </div>
-  <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-  ${stocks.filter(s => s.evEbitdaPercentile <= 20 && s.fcfYield > 3).slice(0, 6).map(s => `
-    <div class="bg-emerald-900/15 border border-emerald-600/30 rounded-lg p-3">
-      <div class="flex items-center justify-between mb-2">
-        <span class="font-bold text-white text-sm">${s.ticker}</span>
-        <span class="text-xs text-gray-400">${s.sector.split('—')[0].trim()}</span>
-      </div>
-      <div class="grid grid-cols-3 gap-2 text-xs">
-        <div class="text-center">
-          <div class="text-emerald-400 font-bold">${s.evEbitda.toFixed(1)}×</div>
-          <div class="text-gray-500">EV/EBITDA</div>
-          <div class="text-emerald-400 text-xs">${s.evEbitdaPercentile}%ile</div>
-        </div>
-        <div class="text-center">
-          <div class="text-yellow-400 font-bold">${s.fcfYield.toFixed(1)}%</div>
-          <div class="text-gray-500">FCF Yield</div>
-          <div class="text-gray-600">(risk-free: 4.5%)</div>
-        </div>
-        <div class="text-center">
-          <div class="font-bold" style="color:${s.netLeverage > 3 ? '#ef4444' : '#10b981'}">${s.netLeverage.toFixed(1)}×</div>
-          <div class="text-gray-500">Net Lev</div>
-          <div class="text-gray-600">${s.netLeverageSignal}</div>
-        </div>
-      </div>
-      <div class="mt-2 text-xs text-gray-500 bg-gray-900/40 rounded p-1.5">${s.adjustedEbitdaNote||'Adj EBITDA = OpInc + D&A + SBC'}</div>
-    </div>
-  `).join('')}
-  </div>
-</div>`;
-
-      } else if (dcTab === 'sector') {
-        // Sector multiples (EV/EBITDA & EV/Sales)
-        const sectors = [...new Set(stocks.map(s => s.sector.split('—')[0].trim()))];
-        tabContent.innerHTML = `
-<div class="mb-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-  <div class="bg-gray-800/70 border border-gray-700/50 rounded-xl p-4">
-    <div class="text-xs text-gray-400 uppercase font-semibold mb-3">EV/EBITDA by Ticker — TMT Universe</div>
-    <canvas id="dc-eveb-chart" height="220"></canvas>
-  </div>
-  <div class="bg-gray-800/70 border border-gray-700/50 rounded-xl p-4">
-    <div class="text-xs text-gray-400 uppercase font-semibold mb-3">FCF Yield vs Risk-Free Rate (4.52%)</div>
-    <canvas id="dc-fcf-chart" height="220"></canvas>
-  </div>
-</div>
-<div class="overflow-x-auto">
-<table class="w-full text-sm">
-  <thead><tr class="border-b border-gray-700/50 text-xs text-gray-500 uppercase">
-    <th class="py-2 px-4 text-left">Company</th>
-    <th class="py-2 px-4 text-right">Mkt Cap</th>
-    <th class="py-2 px-4 text-right">EV/EBITDA</th>
-    <th class="py-2 px-4 text-right">EV/Sales</th>
-    <th class="py-2 px-4 text-right">Fwd P/E</th>
-    <th class="py-2 px-4 text-right">FCF Yield</th>
-    <th class="py-2 px-4 text-right">Earn Yield</th>
-    <th class="py-2 px-4 text-left">Signal</th>
-  </tr></thead>
-  <tbody class="divide-y divide-gray-700/30">
-  ${stocks.map(s => {
-    const sig = s.fcfYield > 6 && m.usTreasury10y < 5 ? 'undervalued' :
-                s.evEbitdaPercentile >= 80 ? 'overvalued' : 'neutral';
-    const fcfVsRf = s.fcfYield - m.usTreasury10y;
-    const rfColor = fcfVsRf > 0 ? '#10b981' : '#ef4444';
-    return `<tr class="hover:bg-gray-700/20">
-      <td class="py-2 px-4">
-        <div class="font-semibold text-white">${s.ticker}</div>
-        <div class="text-xs text-gray-500">${s.sector.split('—')[0].trim()}</div>
-      </td>
-      <td class="py-2 px-4 text-right text-gray-300">$${s.marketCap}B</td>
-      <td class="py-2 px-4 text-right font-mono">${s.evEbitda.toFixed(1)}×</td>
-      <td class="py-2 px-4 text-right font-mono text-gray-400">${s.evSales.toFixed(1)}×</td>
-      <td class="py-2 px-4 text-right font-mono text-gray-400">${s.forwardPE.toFixed(0)}×</td>
-      <td class="py-2 px-4 text-right font-semibold" style="color:${fcfVsRf > 0 ? '#10b981' : '#ef4444'}">${s.fcfYield.toFixed(1)}%</td>
-      <td class="py-2 px-4 text-right text-gray-400">${s.earningsYield.toFixed(1)}%</td>
-      <td class="py-2 px-4">
-        <span class="px-2 py-0.5 rounded-full text-xs font-bold ${sig==='undervalued' ? 'bg-emerald-700 text-emerald-100' : sig==='overvalued' ? 'bg-red-700 text-red-100' : 'bg-gray-700 text-gray-300'}">${sig}</span>
-      </td>
-    </tr>`;
-  }).join('')}
-  </tbody>
-</table></div>`;
-
-        setTimeout(() => {
-          // EV/EBITDA bar chart
-          const c1 = document.getElementById('dc-eveb-chart');
-          if (c1) {
-            const sortedByEv = [...stocks].sort((a,b) => a.evEbitda - b.evEbitda);
-            new Chart(c1, {
-              type: 'bar',
-              data: {
-                labels: sortedByEv.map(s => s.ticker),
-                datasets: [{
-                  label: 'EV/EBITDA',
-                  data: sortedByEv.map(s => s.evEbitda),
-                  backgroundColor: sortedByEv.map(s =>
-                    s.evEbitdaPercentile <= 20 ? 'rgba(16,185,129,0.7)' :
-                    s.evEbitdaPercentile >= 70 ? 'rgba(239,68,68,0.7)' : 'rgba(99,102,241,0.6)'),
-                  borderRadius: 4
-                }]
-              },
-              options: {
-                responsive: true, maintainAspectRatio: false,
-                plugins: { legend: { display: false } },
-                scales: {
-                  x: { ticks: { color: '#9ca3af' }, grid: { color: '#374151' } },
-                  y: { ticks: { color: '#9ca3af' }, grid: { color: '#374151' } }
-                }
-              }
-            });
-          }
-          // FCF Yield chart
-          const c2 = document.getElementById('dc-fcf-chart');
-          if (c2) {
-            const sortedByFcf = [...stocks].sort((a,b) => b.fcfYield - a.fcfYield);
-            new Chart(c2, {
-              type: 'bar',
-              data: {
-                labels: sortedByFcf.map(s => s.ticker),
-                datasets: [
-                  { label: 'FCF Yield %', data: sortedByFcf.map(s => s.fcfYield),
-                    backgroundColor: sortedByFcf.map(s => s.fcfYield > m.usTreasury10y ? 'rgba(16,185,129,0.7)' : 'rgba(239,68,68,0.7)'),
-                    borderRadius: 4 },
-                  { label: '10Y Risk-Free', data: sortedByFcf.map(() => m.usTreasury10y),
-                    type: 'line', borderColor: '#fbbf24', borderWidth: 2,
-                    borderDash: [5, 3], pointRadius: 0, fill: false }
-                ]
-              },
-              options: {
-                responsive: true, maintainAspectRatio: false,
-                plugins: { legend: { labels: { color: '#9ca3af', font: { size: 10 } } } },
-                scales: {
-                  x: { ticks: { color: '#9ca3af' }, grid: { color: '#374151' } },
-                  y: { ticks: { color: '#9ca3af', callback: v => v+'%' }, grid: { color: '#374151' } }
-                }
-              }
-            });
-          }
-        }, 50);
-
-      } else if (dcTab === 'pipeline') {
-        // Data pipeline health
-        const srcs = health.dataSources || [];
-        tabContent.innerHTML = `
-<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-  <!-- Sources -->
-  <div>
-    <div class="mb-3 text-xs font-bold text-gray-300 uppercase">Data Sources & Freshness</div>
-    <div class="space-y-2">
-    ${srcs.map(s => `
-      <div class="bg-gray-800/60 border border-gray-700/40 rounded-lg p-3 flex items-center gap-3">
-        <div class="w-2 h-2 rounded-full ${s.status === 'live' ? 'bg-emerald-400 animate-pulse' : s.status === 'connected' ? 'bg-emerald-400 animate-pulse' : s.status === 'mock' ? 'bg-yellow-400' : 'bg-gray-500'}"></div>
-        <div class="flex-1">
-          <div class="flex items-center justify-between">
-            <span class="text-sm font-semibold text-white">${s.name}</span>
-            <span class="text-xs px-2 py-0.5 rounded-full ${(s.status==='live'||s.status==='connected') ? 'bg-emerald-800 text-emerald-200' : 'bg-yellow-800 text-yellow-200'}">${s.status||'mock'}</span>
-          </div>
-          ${s.apiCode ? `<div class="text-xs text-gray-500 mt-0.5 font-mono">${s.apiCode}</div>` : ''}
-          ${s.compliance ? `<div class="text-xs text-blue-400 mt-0.5">${s.compliance}</div>` : ''}
-          ${s.updateFreq ? `<div class="text-xs text-gray-600">Update: ${s.updateFreq}</div>` : ''}
-          ${s.latency ? `<div class="text-xs text-gray-600">Latency: ${s.latency}</div>` : ''}
-        </div>
-      </div>
-    `).join('')}
-    </div>
-  </div>
-  <!-- Bias Safeguards -->
-  <div>
-    <div class="mb-3 text-xs font-bold text-gray-300 uppercase">Backtest Bias Safeguards</div>
-    <div class="space-y-2">
-      ${health.pitArchitecture ? `
-      <div class="bg-emerald-900/20 border border-emerald-600/30 rounded-lg p-3">
-        <div class="text-sm font-bold text-emerald-300 mb-2">✓ Point-in-Time (PIT) Architecture</div>
-        <ul class="text-xs text-gray-400 space-y-1">
-          ${health.pitArchitecture.map(r => `<li class="flex items-start gap-1"><span class="text-emerald-500 mt-0.5">•</span>${r}</li>`).join('')}
-        </ul>
-      </div>` : ''}
-      ${health.survivorshipBias ? `
-      <div class="bg-blue-900/20 border border-blue-600/30 rounded-lg p-3">
-        <div class="text-sm font-bold text-blue-300 mb-2">✓ Survivorship Bias Mitigation</div>
-        <ul class="text-xs text-gray-400 space-y-1">
-          ${health.survivorshipBias.map(r => `<li class="flex items-start gap-1"><span class="text-blue-500 mt-0.5">•</span>${r}</li>`).join('')}
-        </ul>
-      </div>` : ''}
-      ${health.gaapAdjustments ? `
-      <div class="bg-purple-900/20 border border-purple-600/30 rounded-lg p-3">
-        <div class="text-sm font-bold text-purple-300 mb-2">GAAP Adjustment Rules</div>
-        <ul class="text-xs text-gray-400 space-y-1">
-          ${health.gaapAdjustments.map(r => `<li class="flex items-start gap-1"><span class="text-purple-500 mt-0.5">•</span>${r}</li>`).join('')}
-        </ul>
-      </div>` : ''}
-    </div>
-    <!-- ERP note -->
-    <div class="mt-4 bg-yellow-900/20 border border-yellow-600/30 rounded-lg p-3">
-      <div class="text-xs font-bold text-yellow-300 mb-1">Live ERP Warning</div>
-      <div class="text-xs text-gray-300">${e.erpNote}</div>
-    </div>
-  </div>
-</div>`;
+    // sub-module toggle
+    let openDC = null;
+    window._dcToggle = function(id) {
+      const panels = ['dc-sub-valuation','dc-sub-sector','dc-sub-pipeline'];
+      if (openDC === id) {
+        openDC = null;
+        document.getElementById(id).style.display = 'none';
+      } else {
+        openDC = id;
+        panels.forEach(p => {
+          const el2 = document.getElementById(p);
+          if (el2) el2.style.display = p===id?'block':'none';
+        });
+        if (id === 'dc-sub-sector') setTimeout(drawDCSectorCharts, 40);
       }
+      // update active state
+      panels.forEach(p => {
+        const btn = document.getElementById('btn-'+p);
+        if (btn) {
+          btn.classList.toggle('bg-purple-600', p===id && openDC===id);
+          btn.classList.toggle('border-purple-500', p===id && openDC===id);
+          btn.classList.toggle('text-white', p===id && openDC===id);
+          btn.classList.toggle('bg-gray-800', !(p===id && openDC===id));
+          btn.classList.toggle('border-gray-600', !(p===id && openDC===id));
+          btn.classList.toggle('text-gray-400', !(p===id && openDC===id));
+        }
+      });
+    };
+
+    function drawDCSectorCharts() {
+      if (window._dcSectorDrawn) return;
+      window._dcSectorDrawn = true;
+      const sortedEv  = [...stocks].sort((a,b)=>a.evEbitda-b.evEbitda);
+      const sortedFcf = [...stocks].sort((a,b)=>b.fcfYield-a.fcfYield);
+
+      const c1 = document.getElementById('dc-eveb-chart');
+      if (c1) new Chart(c1, {
+        type:'bar',
+        data:{ labels:sortedEv.map(s=>s.ticker),
+          datasets:[{ label:'EV/EBITDA', data:sortedEv.map(s=>s.evEbitda),
+            backgroundColor:sortedEv.map(s=>s.evEbitdaPercentile<=20?'rgba(16,185,129,0.7)':s.evEbitdaPercentile>=70?'rgba(239,68,68,0.7)':'rgba(99,102,241,0.6)'),
+            borderRadius:3 }] },
+        options:{ responsive:true, maintainAspectRatio:false,
+          plugins:{legend:{display:false}},
+          scales:{ x:{ticks:{color:'#9ca3af',font:{size:9}}},
+                   y:{ticks:{color:'#9ca3af',font:{size:9}},grid:{color:'#1f2937'}} } }
+      });
+
+      const c2 = document.getElementById('dc-fcf-chart');
+      if (c2) new Chart(c2, {
+        type:'bar',
+        data:{ labels:sortedFcf.map(s=>s.ticker),
+          datasets:[
+            { label:'FCF Yield %', data:sortedFcf.map(s=>s.fcfYield),
+              backgroundColor:sortedFcf.map(s=>s.fcfYield>m.usTreasury10y?'rgba(16,185,129,0.7)':'rgba(239,68,68,0.7)'),
+              borderRadius:3 },
+            { type:'line', label:'10Y Risk-Free', data:sortedFcf.map(()=>m.usTreasury10y),
+              borderColor:'#fbbf24', borderWidth:1.5, borderDash:[4,3], pointRadius:0, fill:false }
+          ] },
+        options:{ responsive:true, maintainAspectRatio:false,
+          plugins:{legend:{labels:{color:'#9ca3af',font:{size:9},boxWidth:10}}},
+          scales:{ x:{ticks:{color:'#9ca3af',font:{size:9}}},
+                   y:{ticks:{color:'#9ca3af',font:{size:9},callback:v=>v+'%'},grid:{color:'#1f2937'}} } }
+      });
     }
 
+    const avgEv  = (stocks.reduce((a,s)=>a+s.evEbitda,0)/stocks.length).toFixed(1);
+    const avgFcf = (stocks.reduce((a,s)=>a+s.fcfYield,0)/stocks.length).toFixed(1);
+    const erpColor = e.erp<1?'#ef4444':e.erp<2.5?'#f59e0b':'#10b981';
+
     el.innerHTML = `
-<!-- Header -->
-<div class="mb-5 flex items-start justify-between flex-wrap gap-4">
-  <div>
-    <h2 class="text-2xl font-bold text-white flex items-center gap-2">
-      <i class="fas fa-database text-purple-400"></i>
-      数据中心 Data Center
-    </h2>
-    <p class="text-gray-400 text-sm mt-1">Fundamental Valuation · Sector Multiples · FCF Yield · GAAP-Adjusted · PIT-Compliant</p>
-  </div>
-  <div class="flex gap-2 text-xs">
-    ${[['valuation','Valuation Table'],['sector','Sector Multiples'],['pipeline','Data Pipeline']].map(([t,l])=>`
-    <button onclick="window.__dcSetTab('${t}')" id="dc-tab-${t}"
-      class="px-3 py-1.5 rounded-lg font-semibold border transition-colors
-        ${dcTab===t ? 'bg-purple-600 border-purple-500 text-white' : 'bg-gray-800 border-gray-600 text-gray-400 hover:text-white'}">${l}</button>`).join('')}
-  </div>
+<!-- header -->
+<div class="mb-5">
+  <h2 class="text-xl font-bold text-white flex items-center gap-2">
+    <i class="fas fa-database text-purple-400"></i>
+    数据中心 Data Center
+  </h2>
+  <p class="text-gray-500 text-xs mt-0.5">Fundamental Valuation · GAAP-Adjusted · PIT-Compliant · Click sub-module to expand</p>
 </div>
 
-<!-- Mini KPI row -->
+<!-- ── KPI STRIP ────────────────────────────────────────────────────── -->
 <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
   ${[
-    ['Stocks in Universe', stocks.length, 'TMT + mega cap', '#a78bfa'],
-    ['Avg EV/EBITDA', (stocks.reduce((a,s)=>a+s.evEbitda,0)/stocks.length).toFixed(1)+'×', 'vs 10Y avg ~15×', '#60a5fa'],
-    ['Avg FCF Yield', (stocks.reduce((a,s)=>a+s.fcfYield,0)/stocks.length).toFixed(1)+'%', `vs 10Y Tsy ${m.usTreasury10y}%`, '#34d399'],
-    ['ERP', e.erp.toFixed(2)+'%', e.erpSignal, e.erp < 1 ? '#ef4444' : '#fbbf24']
+    ['Stocks Covered', stocks.length, 'TMT + Mega Cap', '#a78bfa'],
+    ['Avg EV/EBITDA',  avgEv+'×',    'vs 10Y avg ~15×', avgEv>20?'#ef4444':'#60a5fa'],
+    ['Avg FCF Yield',  avgFcf+'%',   'vs 10Y Tsy '+m.usTreasury10y+'%', parseFloat(avgFcf)>m.usTreasury10y?'#10b981':'#f59e0b'],
+    ['ERP',            e.erp.toFixed(2)+'%', e.erpSignal, erpColor]
   ].map(([l,v,s,c])=>`
-  <div class="bg-gray-800/60 border border-gray-700/40 rounded-lg p-3">
-    <div class="text-xs text-gray-500 mb-1">${l}</div>
+  <div class="bg-gray-800/60 border border-gray-700/40 rounded-xl p-3">
+    <div class="text-[10px] text-gray-500 uppercase mb-1">${l}</div>
     <div class="text-2xl font-bold" style="color:${c}">${v}</div>
-    <div class="text-xs text-gray-600">${s}</div>
+    <div class="text-[10px] text-gray-600 mt-0.5">${s}</div>
   </div>`).join('')}
 </div>
 
-<div id="dc-tab-content"></div>`;
+<!-- ── SUB-MODULE CARDS ───────────────────────────────────────────────── -->
+<div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-2">
 
-    // Set tab switcher
-    window.__dcSetTab = function(t) {
-      dcTab = t;
-      ['valuation','sector','pipeline'].forEach(x => {
-        const btn = document.getElementById(`dc-tab-${x}`);
-        if (btn) {
-          btn.className = btn.className.replace(/bg-purple-600 border-purple-500 text-white|bg-gray-800 border-gray-600 text-gray-400 hover:text-white/g, '');
-          btn.className += t === x ? ' bg-purple-600 border-purple-500 text-white' : ' bg-gray-800 border-gray-600 text-gray-400 hover:text-white';
-        }
-      });
-      renderDCContent();
-    };
+  <!-- Valuation card -->
+  <div id="btn-dc-sub-valuation"
+       class="cursor-pointer bg-gray-800 border border-gray-600 text-gray-400 rounded-xl p-4 hover:bg-gray-700/60 transition-colors"
+       onclick="window._dcToggle('dc-sub-valuation')">
+    <div class="flex items-center justify-between mb-3">
+      <div class="flex items-center gap-2">
+        <div class="w-8 h-8 bg-emerald-900/50 rounded-lg flex items-center justify-center">
+          <i class="fas fa-table text-emerald-400 text-sm"></i>
+        </div>
+        <span class="text-sm font-bold text-white">Valuation Table</span>
+      </div>
+      <i class="fas fa-chevron-down text-gray-600 text-xs"></i>
+    </div>
+    <p class="text-xs text-gray-500 mb-3">EV/EBITDA · FCF Yield · Net Leverage · Undervaluation signals sorted by cheapness</p>
+    <div class="grid grid-cols-3 gap-1 text-[10px] text-center">
+      ${stocks.slice(0,3).map(s=>`
+      <div class="bg-gray-900/60 rounded p-1">
+        <div class="font-bold text-white">${s.ticker}</div>
+        <div style="color:${evColor(s.evEbitdaPercentile)}">${s.evEbitda.toFixed(1)}×</div>
+      </div>`).join('')}
+    </div>
+  </div>
 
-    renderDCContent();
+  <!-- Sector Multiples card -->
+  <div id="btn-dc-sub-sector"
+       class="cursor-pointer bg-gray-800 border border-gray-600 text-gray-400 rounded-xl p-4 hover:bg-gray-700/60 transition-colors"
+       onclick="window._dcToggle('dc-sub-sector')">
+    <div class="flex items-center justify-between mb-3">
+      <div class="flex items-center gap-2">
+        <div class="w-8 h-8 bg-blue-900/50 rounded-lg flex items-center justify-center">
+          <i class="fas fa-chart-bar text-blue-400 text-sm"></i>
+        </div>
+        <span class="text-sm font-bold text-white">Sector Multiples</span>
+      </div>
+      <i class="fas fa-chevron-down text-gray-600 text-xs"></i>
+    </div>
+    <p class="text-xs text-gray-500 mb-3">EV/EBITDA & FCF Yield bar charts vs risk-free rate across TMT universe</p>
+    <div class="flex gap-2 text-[10px]">
+      <span class="bg-emerald-900/40 text-emerald-400 px-2 py-0.5 rounded">Cheap ≤20th%ile</span>
+      <span class="bg-red-900/40 text-red-400 px-2 py-0.5 rounded">Rich ≥70th%ile</span>
+    </div>
+  </div>
+
+  <!-- Data Pipeline card -->
+  <div id="btn-dc-sub-pipeline"
+       class="cursor-pointer bg-gray-800 border border-gray-600 text-gray-400 rounded-xl p-4 hover:bg-gray-700/60 transition-colors"
+       onclick="window._dcToggle('dc-sub-pipeline')">
+    <div class="flex items-center justify-between mb-3">
+      <div class="flex items-center gap-2">
+        <div class="w-8 h-8 bg-purple-900/50 rounded-lg flex items-center justify-center">
+          <i class="fas fa-shield-alt text-purple-400 text-sm"></i>
+        </div>
+        <span class="text-sm font-bold text-white">Data Pipeline</span>
+      </div>
+      <i class="fas fa-chevron-down text-gray-600 text-xs"></i>
+    </div>
+    <p class="text-xs text-gray-500 mb-3">Source status · PIT architecture · Survivorship bias rules · GAAP methodology</p>
+    <div class="flex gap-2 text-[10px]">
+      <span class="bg-emerald-900/40 text-emerald-400 px-2 py-0.5 rounded">✓ PIT Compliant</span>
+      <span class="bg-blue-900/40 text-blue-400 px-2 py-0.5 rounded">${srcs.length} Sources</span>
+    </div>
+  </div>
+</div>
+
+<!-- ── SUB-MODULE: VALUATION TABLE ───────────────────────────────────── -->
+<div id="dc-sub-valuation" style="display:none" class="mb-3 bg-gray-900/60 border border-gray-700/60 rounded-xl p-4">
+  <div class="flex items-center justify-between mb-3">
+    <span class="text-xs font-bold text-gray-300 uppercase flex items-center gap-2">
+      <i class="fas fa-table text-emerald-400"></i> Valuation Table — EV/EBITDA Sorted Ascending
+    </span>
+    <button onclick="window._dcToggle('dc-sub-valuation')" class="text-gray-600 hover:text-gray-300 text-xs">✕ close</button>
+  </div>
+  <div class="mb-3 p-2.5 bg-blue-900/20 border border-blue-600/30 rounded-lg text-[10px] text-blue-300">
+    <i class="fas fa-info-circle mr-1"></i>${fundRes.data.gaapAdjustmentNote||'Adjusted EBITDA = Op. Income + D&A + SBC. FCF = OCF − CapEx − Cap. Software.'} · PIT = Point-in-Time filing date.
+  </div>
+  <div class="overflow-x-auto">
+  <table class="w-full text-xs">
+    <thead><tr class="border-b border-gray-700/50 text-[10px] text-gray-500 uppercase">
+      <th class="py-1.5 px-2 text-left">Ticker</th>
+      <th class="py-1.5 px-2 text-right">Mkt Cap</th>
+      <th class="py-1.5 px-2 text-right">EV/EBITDA</th>
+      <th class="py-1.5 px-2 text-right">Pctile</th>
+      <th class="py-1.5 px-2 text-right">EV/Sales</th>
+      <th class="py-1.5 px-2 text-right">Fwd P/E</th>
+      <th class="py-1.5 px-2 text-right">FCF Yield</th>
+      <th class="py-1.5 px-2 text-right">Net Lev</th>
+      <th class="py-1.5 px-2 text-center hidden md:table-cell">PIT</th>
+    </tr></thead>
+    <tbody class="divide-y divide-gray-700/25">
+    ${[...stocks].sort((a,b)=>a.evEbitda-b.evEbitda).map(s=>{
+      const flag = s.evEbitdaPercentile<=10&&s.fcfYield>4
+        ? '<span class="ml-1 bg-emerald-600 text-white text-[9px] px-1 rounded">★</span>' : '';
+      return `<tr class="hover:bg-gray-800/40 ${s.evEbitdaPercentile<=10?'bg-emerald-900/10':''}">
+        <td class="py-1.5 px-2 font-bold text-white">${s.ticker}${flag}</td>
+        <td class="py-1.5 px-2 text-right text-gray-400">$${s.marketCap}B</td>
+        <td class="py-1.5 px-2 text-right font-bold" style="color:${evColor(s.evEbitdaPercentile)}">${s.evEbitda.toFixed(1)}×</td>
+        <td class="py-1.5 px-2 text-right text-[10px]" style="color:${evColor(s.evEbitdaPercentile)}">${s.evEbitdaPercentile}%ile</td>
+        <td class="py-1.5 px-2 text-right text-gray-500">${s.evSales.toFixed(1)}×</td>
+        <td class="py-1.5 px-2 text-right text-gray-500">${s.forwardPE.toFixed(0)}×</td>
+        <td class="py-1.5 px-2 text-right font-semibold" style="color:${fcfColor(s.fcfYield)}">${s.fcfYield.toFixed(1)}%</td>
+        <td class="py-1.5 px-2 text-right font-semibold" style="color:${levColor(s.netLeverage)}">${s.netLeverage.toFixed(1)}×</td>
+        <td class="py-1.5 px-2 text-center hidden md:table-cell text-[9px] ${s.pitCompliant?'text-emerald-400':'text-red-400'}">${s.pitCompliant?'✓ PIT':'⚠'}<div class="text-gray-700">${s.lastReportDate}</div></td>
+      </tr>`;
+    }).join('')}
+    </tbody>
+  </table>
+  </div>
+  <!-- Undervaluation signals -->
+  ${stocks.filter(s=>s.evEbitdaPercentile<=20&&s.fcfYield>3).length > 0 ? `
+  <div class="mt-4 pt-3 border-t border-gray-700/40">
+    <div class="text-[10px] font-bold text-emerald-400 uppercase mb-2">★ Undervaluation Signals — EV/EBITDA ≤20th pctile · FCF Yield >3%</div>
+    <div class="grid grid-cols-2 md:grid-cols-3 gap-2">
+    ${stocks.filter(s=>s.evEbitdaPercentile<=20&&s.fcfYield>3).map(s=>`
+      <div class="bg-emerald-900/15 border border-emerald-600/30 rounded-lg p-2">
+        <div class="flex justify-between mb-1">
+          <span class="font-bold text-white text-xs">${s.ticker}</span>
+          <span class="text-[10px] text-gray-500">${s.sector.split('—')[0].trim()}</span>
+        </div>
+        <div class="grid grid-cols-3 text-[10px] text-center gap-1">
+          <div><div class="text-emerald-400 font-bold">${s.evEbitda.toFixed(1)}×</div><div class="text-gray-600">EV/EBITDA</div></div>
+          <div><div class="text-yellow-400 font-bold">${s.fcfYield.toFixed(1)}%</div><div class="text-gray-600">FCF Yield</div></div>
+          <div><div style="color:${levColor(s.netLeverage)}" class="font-bold">${s.netLeverage.toFixed(1)}×</div><div class="text-gray-600">Net Lev</div></div>
+        </div>
+      </div>`).join('')}
+    </div>
+  </div>` : ''}
+</div>
+
+<!-- ── SUB-MODULE: SECTOR MULTIPLES ─────────────────────────────────── -->
+<div id="dc-sub-sector" style="display:none" class="mb-3 bg-gray-900/60 border border-gray-700/60 rounded-xl p-4">
+  <div class="flex items-center justify-between mb-4">
+    <span class="text-xs font-bold text-gray-300 uppercase flex items-center gap-2">
+      <i class="fas fa-chart-bar text-blue-400"></i> Sector Multiples — EV/EBITDA & FCF Yield
+    </span>
+    <button onclick="window._dcToggle('dc-sub-sector')" class="text-gray-600 hover:text-gray-300 text-xs">✕ close</button>
+  </div>
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+    <div class="bg-gray-800/60 rounded-xl p-3">
+      <div class="text-[10px] text-gray-500 uppercase font-semibold mb-2">EV/EBITDA (green=cheap, red=expensive)</div>
+      <canvas id="dc-eveb-chart" height="180"></canvas>
+    </div>
+    <div class="bg-gray-800/60 rounded-xl p-3">
+      <div class="text-[10px] text-gray-500 uppercase font-semibold mb-2">FCF Yield vs Risk-Free (${m.usTreasury10y}%)</div>
+      <canvas id="dc-fcf-chart" height="180"></canvas>
+    </div>
+  </div>
+  <div class="overflow-x-auto">
+  <table class="w-full text-xs">
+    <thead><tr class="border-b border-gray-700/50 text-[10px] text-gray-500 uppercase">
+      <th class="py-1.5 px-3 text-left">Company</th>
+      <th class="py-1.5 px-3 text-right">EV/EBITDA</th>
+      <th class="py-1.5 px-3 text-right">EV/Sales</th>
+      <th class="py-1.5 px-3 text-right">Fwd P/E</th>
+      <th class="py-1.5 px-3 text-right">FCF Yield</th>
+      <th class="py-1.5 px-3 text-right">Earn Yield</th>
+      <th class="py-1.5 px-3 text-center">Signal</th>
+    </tr></thead>
+    <tbody class="divide-y divide-gray-700/30">
+    ${stocks.map(s=>{
+      const sig = s.fcfYield>6&&m.usTreasury10y<5?'undervalued':s.evEbitdaPercentile>=80?'overvalued':'neutral';
+      return `<tr class="hover:bg-gray-800/40">
+        <td class="py-1.5 px-3 font-semibold text-white">${s.ticker} <span class="text-[10px] text-gray-500">${s.name.split(' ')[0]}</span></td>
+        <td class="py-1.5 px-3 text-right font-mono" style="color:${evColor(s.evEbitdaPercentile)}">${s.evEbitda.toFixed(1)}×</td>
+        <td class="py-1.5 px-3 text-right text-gray-500">${s.evSales.toFixed(1)}×</td>
+        <td class="py-1.5 px-3 text-right text-gray-500">${s.forwardPE.toFixed(0)}×</td>
+        <td class="py-1.5 px-3 text-right font-semibold" style="color:${s.fcfYield>m.usTreasury10y?'#10b981':'#ef4444'}">${s.fcfYield.toFixed(1)}%</td>
+        <td class="py-1.5 px-3 text-right text-gray-500">${s.earningsYield.toFixed(1)}%</td>
+        <td class="py-1.5 px-3 text-center">
+          <span class="${sig==='undervalued'?'bg-emerald-700 text-emerald-100':sig==='overvalued'?'bg-red-700 text-red-100':'bg-gray-700 text-gray-300'} text-[9px] font-bold px-1.5 py-0.5 rounded-full">${sig}</span>
+        </td>
+      </tr>`;
+    }).join('')}
+    </tbody>
+  </table>
+  </div>
+</div>
+
+<!-- ── SUB-MODULE: DATA PIPELINE ─────────────────────────────────────── -->
+<div id="dc-sub-pipeline" style="display:none" class="mb-3 bg-gray-900/60 border border-gray-700/60 rounded-xl p-4">
+  <div class="flex items-center justify-between mb-4">
+    <span class="text-xs font-bold text-gray-300 uppercase flex items-center gap-2">
+      <i class="fas fa-shield-alt text-purple-400"></i> Data Pipeline & Bias Safeguards
+    </span>
+    <button onclick="window._dcToggle('dc-sub-pipeline')" class="text-gray-600 hover:text-gray-300 text-xs">✕ close</button>
+  </div>
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+    <div>
+      <div class="text-[10px] font-bold text-gray-400 uppercase mb-2">Data Sources</div>
+      <div class="space-y-1.5">
+      ${srcs.map(s=>`
+        <div class="flex items-center gap-2.5 bg-gray-800/50 rounded-lg p-2">
+          <div class="w-1.5 h-1.5 rounded-full flex-shrink-0 ${s.status==='live'||s.status==='connected'?'bg-emerald-400 animate-pulse':'bg-yellow-400'}"></div>
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-semibold text-white">${s.name}</span>
+              <span class="text-[9px] px-1.5 py-0.5 rounded-full ${s.status==='live'||s.status==='connected'?'bg-emerald-800 text-emerald-200':'bg-yellow-800 text-yellow-200'}">${s.status||'mock'}</span>
+            </div>
+            ${s.apiCode?`<div class="text-[10px] text-gray-500 font-mono truncate">${s.apiCode}</div>`:''}
+            ${s.updateFreq?`<div class="text-[10px] text-gray-600">${s.updateFreq}</div>`:''}
+          </div>
+        </div>`).join('')}
+      </div>
+    </div>
+    <div class="space-y-2">
+      ${health.pitArchitecture?`
+      <div class="bg-emerald-900/20 border border-emerald-600/30 rounded-lg p-3">
+        <div class="text-xs font-bold text-emerald-300 mb-2">✓ Point-in-Time (PIT)</div>
+        <ul class="space-y-1">${health.pitArchitecture.map(r=>`<li class="text-[10px] text-gray-400 flex gap-1"><span class="text-emerald-500">•</span>${r}</li>`).join('')}</ul>
+      </div>`:''}
+      ${health.survivorshipBias?`
+      <div class="bg-blue-900/20 border border-blue-600/30 rounded-lg p-3">
+        <div class="text-xs font-bold text-blue-300 mb-2">✓ Survivorship Bias</div>
+        <ul class="space-y-1">${health.survivorshipBias.map(r=>`<li class="text-[10px] text-gray-400 flex gap-1"><span class="text-blue-500">•</span>${r}</li>`).join('')}</ul>
+      </div>`:''}
+      ${health.gaapAdjustments?`
+      <div class="bg-purple-900/20 border border-purple-600/30 rounded-lg p-3">
+        <div class="text-xs font-bold text-purple-300 mb-2">GAAP Adjustments</div>
+        <ul class="space-y-1">${health.gaapAdjustments.map(r=>`<li class="text-[10px] text-gray-400 flex gap-1"><span class="text-purple-500">•</span>${r}</li>`).join('')}</ul>
+      </div>`:''}
+    </div>
+  </div>
+</div>
+`;
 
   } catch(err) {
-    el.innerHTML = `<div class="text-red-400 p-6">Error loading data center: ${err.message}</div>`;
+    el.innerHTML = `<div class="text-red-400 p-6">Error: ${err.message}</div>`;
     console.error(err);
   }
 }
