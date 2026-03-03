@@ -8,7 +8,8 @@ import {
 import {
   SP500_UNIVERSE, recentFilings, earningsUpdates,
   marketOverview, factorResearchPapers, aiExtractedStrategies,
-  FIVE_FACTOR_WEIGHTS, HARD_FILTER
+  FIVE_FACTOR_WEIGHTS, HARD_FILTER,
+  mlModels, mlSignals, trainingRuns, regimeData
 } from './data/usMarketData'
 
 const app = new Hono()
@@ -99,6 +100,25 @@ app.get('/api/research/ai-strategies', (c) => {
   if (status) stgs = stgs.filter(s => s.status === status)
   return c.json({ total: stgs.length, strategies: stgs })
 })
+
+// ── API: ML for Finance ──────────────────────────────────────────────────────
+app.get('/api/ml/models', (c) => c.json({ total: mlModels.length, models: mlModels }))
+app.get('/api/ml/models/:id', (c) => {
+  const m = mlModels.find(m => m.id === c.req.param('id'))
+  return m ? c.json(m) : c.json({ error: 'Not found' }, 404)
+})
+app.get('/api/ml/signals', (c) => {
+  const strength = c.req.query('strength') || ''
+  let sigs = mlSignals
+  if (strength) sigs = sigs.filter(s => s.signalStrength === strength)
+  return c.json({ total: sigs.length, signals: sigs, generatedAt: new Date().toISOString() })
+})
+app.get('/api/ml/training', (c) => c.json({ total: trainingRuns.length, runs: trainingRuns }))
+app.get('/api/ml/training/:id', (c) => {
+  const r = trainingRuns.find(r => r.id === c.req.param('id'))
+  return r ? c.json(r) : c.json({ error: 'Not found' }, 404)
+})
+app.get('/api/ml/regime', (c) => c.json(regimeData))
 
 // ── API: Positions ──────────────────────────────────────────────────────────
 app.get('/api/positions', (c) => c.json(positions))
@@ -201,6 +221,7 @@ function navItems() {
     { id: 'datacenter',  icon: 'fas fa-database',       label: '数据中心',           badge: 'US' },
     { id: 'screener',    icon: 'fas fa-filter',         label: '五因子筛选',          badge: 'AI' },
     { id: 'strategies',  icon: 'fas fa-brain',          label: '策略管理',           badge: '' },
+    { id: 'mlfinance',   icon: 'fas fa-robot',          label: 'ML for Finance',     badge: 'NEW' },
     { id: 'research',    icon: 'fas fa-flask',          label: '研究论文库',          badge: '4' },
     { id: 'trading',     icon: 'fas fa-exchange-alt',   label: '交易模块',           badge: '' },
     { id: 'backtest',    icon: 'fas fa-history',        label: '回测平台',           badge: '' },

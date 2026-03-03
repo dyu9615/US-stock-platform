@@ -21,6 +21,7 @@ const PAGE_TITLES = {
   datacenter:  '数据中心 Data Center',
   screener:    '五因子筛选 Stock Screener',
   strategies:  '策略管理 Strategy Manager',
+  mlfinance:   'ML for Finance — 机器学习信号引擎',
   research:    '研究论文库 Research Library',
   trading:     '交易模块 Trade Execution',
   backtest:    '回测平台 Backtesting',
@@ -73,6 +74,7 @@ async function renderPage(page) {
     case 'datacenter':  await renderDataCenter(container); break
     case 'screener':    await renderScreener(container); break
     case 'strategies':  await renderStrategies(container); break
+    case 'mlfinance':   await renderMLFinance(container); break
     case 'research':    await renderResearch(container); break
     case 'trading':     await renderTrading(container); break
     case 'backtest':    await renderBacktest(container); break
@@ -681,6 +683,594 @@ window.stgTab = function(tab, btn) {
 
 window.toggleStratDetail = function(id) {
   document.getElementById(`detail-${id}`)?.classList.toggle('hidden')
+}
+
+// ╔══════════════════════════════════════════════════════════════════════╗
+// ║  5b. ML FOR FINANCE — Machine Learning Signal Engine                 ║
+// ║  Paradigm: Data + Historical Returns = Rules (not Data + Rules)      ║
+// ╚══════════════════════════════════════════════════════════════════════╝
+async function renderMLFinance(el) {
+  const [modelsRes, signalsRes, trainingRes, regimeRes] = await Promise.all([
+    axios.get(`${API}/api/ml/models`),
+    axios.get(`${API}/api/ml/signals`),
+    axios.get(`${API}/api/ml/training`),
+    axios.get(`${API}/api/ml/regime`),
+  ])
+  const models = modelsRes.data.models
+  const signals = signalsRes.data.signals
+  const runs = trainingRes.data.runs
+  const regime = regimeRes.data
+
+  el.innerHTML = `
+  <!-- PARADIGM BANNER -->
+  <div class="card-gold card p-4 mb-5">
+    <div class="grid grid-cols-3 gap-6 items-center">
+      <div class="col-span-2">
+        <div class="flex items-center gap-3 mb-2">
+          <div class="w-8 h-8 rounded-lg bg-purple-500/20 flex items-center justify-center"><i class="fas fa-brain text-purple-400"></i></div>
+          <span class="text-sm font-bold text-white">范式跃迁：从确定性规则 → 模式识别</span>
+        </div>
+        <div class="grid grid-cols-2 gap-4 text-xs">
+          <div class="bg-[#111827] rounded p-3 border border-red-800/30">
+            <div class="text-red-400 font-semibold mb-2 flex items-center gap-1"><i class="fas fa-times-circle"></i> 传统方法 (Deterministic)</div>
+            <code class="text-gray-400 font-mono text-[11px]">Data + <span class="text-red-300">Rules</span> = Answers<br>Growth×<span class="text-red-300">0.30</span> + Val×<span class="text-red-300">0.25</span> + ...<br><span class="text-gray-600"># 人工硬编码权重，无法适应市场变化</span></code>
+          </div>
+          <div class="bg-[#111827] rounded p-3 border border-emerald-800/30">
+            <div class="text-emerald-400 font-semibold mb-2 flex items-center gap-1"><i class="fas fa-check-circle"></i> ML方法 (Pattern Recognition)</div>
+            <code class="text-gray-400 font-mono text-[11px]">Data + <span class="text-emerald-300">Historical Returns</span> = <span class="text-emerald-300">Rules</span><br>model.fit(X_train, y_train)<br><span class="text-gray-600"># 模型自主发现最优权重</span></code>
+          </div>
+        </div>
+      </div>
+      <div class="text-center">
+        <div class="text-xs text-gray-500 mb-2">当前市场状态 (HMM)</div>
+        <div class="text-3xl font-bold text-emerald-400 mb-1">${regime.currentRegime}</div>
+        <div class="flex gap-2 justify-center">
+          ${regime.regimeProbabilities.map(r => `
+          <div class="text-center">
+            <div class="text-[10px] text-gray-500">${r.regime}</div>
+            <div class="text-sm font-bold ${r.regime==='RISK_ON'?'text-emerald-400':r.regime==='RISK_OFF'?'text-red-400':'text-amber-400'}">${r.probability}%</div>
+          </div>`).join('')}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TABS -->
+  <div class="flex gap-2 mb-5 flex-wrap">
+    <button class="tab-btn active" onclick="mlTab('signals',this)">🎯 实时信号</button>
+    <button class="tab-btn" onclick="mlTab('models',this)">🧠 模型注册表</button>
+    <button class="tab-btn" onclick="mlTab('training',this)">⚙️ 训练监控</button>
+    <button class="tab-btn" onclick="mlTab('regime',this)">🌐 市场状态机</button>
+    <button class="tab-btn" onclick="mlTab('comparison',this)">📊 ML vs 传统</button>
+  </div>
+
+  <!-- ── TAB: LIVE SIGNALS ── -->
+  <div id="ml-signals">
+    <div class="grid grid-cols-3 gap-4 mb-4">
+      ${signals.map(s => `
+      <div class="card p-4 cursor-pointer hover:border-purple-500/40 transition-all" onclick="showSignalDetail('${s.ticker}')">
+        <div class="flex items-start justify-between mb-2">
+          <div>
+            <div class="flex items-center gap-2">
+              <span class="font-bold text-white text-base">${s.ticker}</span>
+              <span class="text-[10px] text-gray-500">${s.sector.slice(0,15)}</span>
+            </div>
+            <div class="text-[11px] text-gray-500">${s.name}</div>
+          </div>
+          <span class="badge ${signalBadge(s.signalStrength)}">${s.signalStrength.replace('_',' ')}</span>
+        </div>
+
+        <!-- Ensemble Score Ring -->
+        <div class="flex items-center gap-4 mb-3">
+          <div class="relative w-16 h-16">
+            <svg class="w-16 h-16 prog-ring" viewBox="0 0 56 56">
+              <circle cx="28" cy="28" r="22" stroke="#1e2d4a" stroke-width="5" fill="none"/>
+              <circle cx="28" cy="28" r="22" stroke="${s.ensembleScore>=80?'#10b981':s.ensembleScore>=60?'#22d3ee':s.ensembleScore>=40?'#f59e0b':'#ef4444'}"
+                stroke-width="5" fill="none" stroke-dasharray="${2*Math.PI*22}"
+                stroke-dashoffset="${2*Math.PI*22*(1-s.ensembleScore/100)}" stroke-linecap="round"/>
+            </svg>
+            <div class="absolute inset-0 flex items-center justify-center">
+              <span class="text-sm font-bold text-white">${s.ensembleScore}</span>
+            </div>
+          </div>
+          <div class="flex-1">
+            <div class="text-[10px] text-gray-500 mb-1">模型预测收益 (6M)</div>
+            <div class="text-xl font-bold ${s.rfPredictedReturn>=0?'text-emerald-400':'text-red-400'}">${s.rfPredictedReturn>=0?'+':''}${s.rfPredictedReturn.toFixed(1)}%</div>
+            <div class="text-[10px] text-gray-600">置信区间 [${s.confidenceInterval[0].toFixed(1)}%, ${s.confidenceInterval[1].toFixed(1)}%]</div>
+          </div>
+        </div>
+
+        <!-- Feature Importance bars (top 3) -->
+        <div class="space-y-1 mb-2">
+          ${s.featureImportance.slice(0,3).map(f => `
+          <div class="flex items-center gap-2">
+            <span class="text-[10px] text-gray-500 w-28 truncate">${f.feature}</span>
+            <div class="flex-1 score-bar"><div class="score-bar-fill bg-purple-500" style="width:${f.importance*100}%"></div></div>
+            <span class="text-[10px] text-gray-400">${(f.importance*100).toFixed(0)}%</span>
+          </div>`).join('')}
+        </div>
+
+        <!-- Confidence -->
+        <div class="flex items-center justify-between text-[10px]">
+          <span class="text-gray-500">模型置信度</span>
+          <span class="font-bold ${s.confidencePct>=75?'text-emerald-400':s.confidencePct>=55?'text-amber-400':'text-red-400'}">${s.confidencePct}%</span>
+          <span class="text-gray-600">NLP: ${s.nlpSentimentScore}/100</span>
+        </div>
+      </div>`).join('')}
+    </div>
+
+    <!-- Signal Detail Modal -->
+    <div id="signalModal" class="hidden fixed inset-0 bg-black/75 z-50 flex items-center justify-center" onclick="closeSigModal(event)">
+      <div class="card w-[760px] max-h-[85vh] overflow-y-auto p-6" id="signalModalContent"></div>
+    </div>
+  </div>
+
+  <!-- ── TAB: MODEL REGISTRY ── -->
+  <div id="ml-models" class="hidden space-y-4">
+    ${models.map(m => `
+    <div class="card p-5">
+      <div class="flex items-start justify-between mb-3">
+        <div>
+          <div class="flex items-center gap-3 mb-1">
+            <h3 class="font-bold text-white text-base">${m.name}</h3>
+            <span class="badge ${m.algorithmClass==='supervised'?'badge-live':m.algorithmClass==='deep_learning'?'badge-backtesting':m.algorithmClass==='nlp'?'badge-validated':'badge-paused'}">${m.algorithmClass}</span>
+            <span class="badge badge-${m.status}">${m.status}</span>
+          </div>
+          <code class="text-xs text-amber-300 font-mono">${m.algorithm}</code>
+          <p class="text-xs text-gray-400 mt-1 max-w-2xl">${m.paradigm}</p>
+        </div>
+        <div class="text-right text-xs space-y-1">
+          <div>IC: <span class="text-cyan-400 font-bold">${m.modelMetrics.infoCoeff.toFixed(3)}</span></div>
+          <div>ICIR: <span class="text-amber-400 font-bold">${m.modelMetrics.icIR.toFixed(2)}</span></div>
+          <div>Alpha: <span class="text-emerald-400 font-bold">+${m.modelMetrics.annualAlpha}%</span></div>
+          <div>Sharpe: <span class="text-purple-400 font-bold">${m.modelMetrics.sharpe.toFixed(2)}</span></div>
+        </div>
+      </div>
+
+      <!-- vs Baseline -->
+      <div class="grid grid-cols-3 gap-3 mb-4 bg-[#111827] rounded p-3">
+        <div class="text-center">
+          <div class="text-[10px] text-gray-500 mb-1">基准策略 (${m.vsBaseline.baselineName})</div>
+          <div class="text-xl font-bold text-gray-400">${m.vsBaseline.baselineReturn.toFixed(1)}%</div>
+        </div>
+        <div class="text-center flex flex-col items-center justify-center">
+          <i class="fas fa-arrow-right text-emerald-400 text-xl"></i>
+          <div class="text-xs text-emerald-400 font-bold mt-1">+${m.vsBaseline.improvement.toFixed(1)}% 提升</div>
+        </div>
+        <div class="text-center">
+          <div class="text-[10px] text-gray-500 mb-1">ML模型</div>
+          <div class="text-xl font-bold text-emerald-400">${m.vsBaseline.modelReturn.toFixed(1)}%</div>
+        </div>
+      </div>
+
+      <!-- Key Insight -->
+      <div class="bg-purple-900/20 border border-purple-800/30 rounded p-3 mb-3">
+        <div class="text-[10px] text-purple-300 uppercase font-semibold mb-1">🔍 模型发现的非线性规律</div>
+        <p class="text-xs text-gray-300">${m.keyInsight}</p>
+      </div>
+
+      <!-- Non-linear rules list -->
+      <div>
+        <div class="text-[10px] text-gray-500 uppercase mb-2">传统规则系统无法发现的模式</div>
+        <div class="grid grid-cols-2 gap-2">
+          ${m.nonLinearRules.map(r => `
+          <div class="flex items-start gap-2 text-xs text-gray-400 bg-[#111827] rounded p-2">
+            <i class="fas fa-atom text-purple-400 mt-0.5 flex-shrink-0"></i>
+            <span>${r}</span>
+          </div>`).join('')}
+        </div>
+      </div>
+    </div>`).join('')}
+  </div>
+
+  <!-- ── TAB: TRAINING MONITOR ── -->
+  <div id="ml-training" class="hidden">
+    <div class="grid grid-cols-3 gap-4 mb-4">
+      ${runs.map(r => `
+      <div class="kpi-card cursor-pointer hover:border-cyan-500/30 transition" onclick="loadTrainingChart('${r.id}')">
+        <div class="text-xs text-gray-500 mb-1 truncate">${r.modelName}</div>
+        <code class="text-[10px] text-amber-300">${r.algorithm.slice(0,40)}</code>
+        <div class="grid grid-cols-2 gap-1 mt-2 text-[11px]">
+          <div>样本: <span class="text-white">${(r.trainingSize/1000).toFixed(0)}K</span></div>
+          <div>特征: <span class="text-white">${r.features}</span></div>
+          <div>Final IC: <span class="text-cyan-400 font-bold">${r.finalIC.toFixed(3)}</span></div>
+          <div>Sharpe: <span class="text-amber-400 font-bold">${r.finalSharpe.toFixed(2)}</span></div>
+        </div>
+        <div class="mt-2 text-[10px] flex items-center gap-2">
+          ${r.overfitWarning ? '<span class="text-amber-400"><i class="fas fa-exclamation-triangle"></i> 过拟合风险</span>' : '<span class="text-emerald-400"><i class="fas fa-check"></i> 泛化良好</span>'}
+        </div>
+      </div>`).join('')}
+    </div>
+
+    <div class="grid grid-cols-2 gap-4">
+      <div class="card p-4">
+        <div class="text-sm font-semibold text-white mb-1">训练 / 验证 Loss 曲线</div>
+        <div class="text-xs text-gray-500 mb-3">关键检验：验证集Loss是否跟随训练集下降（泛化），或分叉（过拟合）</div>
+        <div class="chart-wrap h-52"><canvas id="trainLossChart"></canvas></div>
+      </div>
+      <div class="card p-4">
+        <div class="text-sm font-semibold text-white mb-1">特征重要性 (Random Forest)</div>
+        <div class="text-xs text-gray-500 mb-3">模型自主学习的因子权重 vs 人工硬编码</div>
+        <div class="chart-wrap h-52"><canvas id="featImpChart"></canvas></div>
+      </div>
+    </div>
+
+    <div class="card p-4 mt-4">
+      <div class="text-sm font-semibold text-white mb-3">交叉验证结果 (5-Fold CV)</div>
+      <table class="data-table"><thead><tr>
+        <th>模型</th><th>Fold 1</th><th>Fold 2</th><th>Fold 3</th><th>Fold 4</th><th>Fold 5</th><th>均值 IC</th><th>标准差</th><th>过拟合检验</th>
+      </tr></thead><tbody>
+        ${runs.map(r => `<tr>
+          <td class="font-semibold text-white text-xs">${r.modelName.slice(0,20)}</td>
+          ${r.cvScores.map(s => `<td class="font-mono text-cyan-400 text-xs">${s.toFixed(3)}</td>`).join('')}
+          <td class="font-mono font-bold text-white">${(r.cvScores.reduce((a,b)=>a+b,0)/r.cvScores.length).toFixed(3)}</td>
+          <td class="font-mono text-gray-400">${Math.sqrt(r.cvScores.reduce((a,b,_,arr)=>a+Math.pow(b-arr.reduce((x,y)=>x+y)/arr.length,2),0)/r.cvScores.length).toFixed(4)}</td>
+          <td>${r.overfitWarning?'<span class="text-amber-400 text-xs">⚠️ 风险</span>':'<span class="text-emerald-400 text-xs">✓ 通过</span>'}</td>
+        </tr>`).join('')}
+      </tbody></table>
+    </div>
+  </div>
+
+  <!-- ── TAB: REGIME (HMM) ── -->
+  <div id="ml-regime" class="hidden">
+    <div class="grid grid-cols-3 gap-4 mb-4">
+      ${regime.regimeWeights.map(r => `
+      <div class="card p-4 ${r.regime===regime.currentRegime?'border-cyan-500/50':''}" >
+        <div class="flex items-center gap-2 mb-3">
+          <div class="w-3 h-3 rounded-full ${r.regime==='RISK_ON'?'bg-emerald-400':r.regime==='RISK_OFF'?'bg-red-400':'bg-amber-400'}"></div>
+          <span class="font-bold text-white">${r.regime}</span>
+          ${r.regime===regime.currentRegime?'<span class="badge badge-live text-[10px]">当前</span>':''}
+        </div>
+        <div class="grid grid-cols-3 gap-2 mb-3 text-center text-xs">
+          <div><div class="text-gray-500">成长</div><div class="font-bold text-white">${r.growth}%</div></div>
+          <div><div class="text-gray-500">估值</div><div class="font-bold text-white">${r.valuation}%</div></div>
+          <div><div class="text-gray-500">质量</div><div class="font-bold text-white">${r.quality}%</div></div>
+          <div><div class="text-gray-500">安全</div><div class="font-bold text-white">${r.safety}%</div></div>
+          <div><div class="text-gray-500">动量</div><div class="font-bold text-white">${r.momentum}%</div></div>
+          <div><div class="text-gray-500">合计</div><div class="font-bold text-cyan-400">${r.growth+r.valuation+r.quality+r.safety+r.momentum}%</div></div>
+        </div>
+        <p class="text-[11px] text-gray-400">${r.commentary}</p>
+      </div>`).join('')}
+    </div>
+
+    <div class="grid grid-cols-2 gap-4">
+      <div class="card p-4">
+        <div class="text-sm font-semibold text-white mb-3">市场状态历史 (VIX + 信用利差)</div>
+        <div class="chart-wrap h-52"><canvas id="regimeChart"></canvas></div>
+      </div>
+      <div class="card p-4">
+        <div class="text-sm font-semibold text-white mb-3">HMM 概率分布 (当前)</div>
+        <div class="chart-wrap h-52"><canvas id="regimePieChart"></canvas></div>
+        <div class="mt-3 space-y-1">
+          ${regime.regimeProbabilities.map(r => `
+          <div class="flex items-center gap-2 text-xs">
+            <div class="w-3 h-3 rounded-sm ${r.regime==='RISK_ON'?'bg-emerald-500':r.regime==='RISK_OFF'?'bg-red-500':'bg-amber-500'}"></div>
+            <span class="text-gray-400 w-20">${r.regime}</span>
+            <div class="flex-1 score-bar"><div class="score-bar-fill ${r.regime==='RISK_ON'?'bg-emerald-500':r.regime==='RISK_OFF'?'bg-red-500':'bg-amber-500'}" style="width:${r.probability}%"></div></div>
+            <span class="text-white font-bold">${r.probability}%</span>
+          </div>`).join('')}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── TAB: COMPARISON ── -->
+  <div id="ml-comparison" class="hidden">
+    <div class="bbg-alert mb-4">
+      <i class="fas fa-balance-scale mr-2"></i>
+      <strong>核心问题：</strong> 为什么ML比硬编码规则系统更好？— 以Random Forest vs 五因子(30/25/20/15/10)为例
+    </div>
+
+    <div class="grid grid-cols-2 gap-4 mb-5">
+      <div class="card p-4">
+        <div class="text-sm font-semibold text-white mb-3">预测收益对比</div>
+        <div class="chart-wrap h-52"><canvas id="mlVsRuleChart"></canvas></div>
+      </div>
+      <div class="card p-4">
+        <div class="text-sm font-semibold text-white mb-3">动态权重 vs 硬编码权重 (META案例)</div>
+        <div class="chart-wrap h-52"><canvas id="weightCompChart"></canvas></div>
+      </div>
+    </div>
+
+    <div class="card p-5">
+      <div class="text-sm font-semibold text-white mb-4">ML vs 传统规则：性能指标对比</div>
+      <table class="data-table"><thead><tr>
+        <th>模型</th><th>年化收益</th><th>信息系数(IC)</th><th>ICIR</th><th>夏普比率</th>
+        <th>vs基准提升</th><th>非线性规律</th><th>自适应</th>
+      </tr></thead><tbody>
+        <tr class="bg-[#0a0e1a]">
+          <td class="text-gray-400 text-xs">五因子硬编码 (30/25/20/15/10)</td>
+          <td class="font-mono text-gray-300">18.6%</td>
+          <td class="font-mono text-gray-300">0.082</td>
+          <td class="font-mono text-gray-300">1.12</td>
+          <td class="font-mono text-gray-300">1.74</td>
+          <td class="text-gray-500">— 基准</td>
+          <td class="text-red-400 text-xs">❌ 无</td>
+          <td class="text-red-400 text-xs">❌ 固定权重</td>
+        </tr>
+        ${models.map(m => `<tr>
+          <td class="font-semibold text-white text-xs">${m.name}</td>
+          <td class="font-mono text-emerald-400 font-bold">${m.vsBaseline.modelReturn.toFixed(1)}%</td>
+          <td class="font-mono text-cyan-400">${m.modelMetrics.infoCoeff.toFixed(3)}</td>
+          <td class="font-mono text-cyan-400">${m.modelMetrics.icIR.toFixed(2)}</td>
+          <td class="font-mono text-amber-400 font-bold">${m.modelMetrics.sharpe.toFixed(2)}</td>
+          <td class="text-emerald-400 text-xs font-bold">+${m.vsBaseline.improvement.toFixed(1)}%</td>
+          <td class="text-emerald-400 text-xs">✓ 发现</td>
+          <td class="text-emerald-400 text-xs">✓ 动态</td>
+        </tr>`).join('')}
+      </tbody></table>
+
+      <div class="mt-5 grid grid-cols-3 gap-4">
+        <div class="bg-[#111827] rounded p-3">
+          <div class="text-[10px] text-amber-400 font-semibold uppercase mb-2">📘 推荐阅读</div>
+          <ul class="text-xs text-gray-400 space-y-1">
+            <li>• Advances in Financial ML — Marcos López de Prado</li>
+            <li>• Machine Learning for Asset Managers — López de Prado</li>
+            <li>• Deep Learning for Finance — Fischer & Krauss</li>
+            <li>• FinBERT: Araci (2019)</li>
+            <li>• scikit-learn RandomForestRegressor docs</li>
+          </ul>
+        </div>
+        <div class="bg-[#111827] rounded p-3">
+          <div class="text-[10px] text-cyan-400 font-semibold uppercase mb-2">🔧 升级路径</div>
+          <ul class="text-xs text-gray-400 space-y-1">
+            <li>① 用RF替换五因子硬编码权重</li>
+            <li>② 添加LSTM序列预测层</li>
+            <li>③ 集成FinBERT财报情绪分析</li>
+            <li>④ HMM识别市场状态动态调权</li>
+            <li>⑤ Ensemble集成以上所有信号</li>
+          </ul>
+        </div>
+        <div class="bg-[#111827] rounded p-3">
+          <div class="text-[10px] text-purple-400 font-semibold uppercase mb-2">⚠️ 关键风险</div>
+          <ul class="text-xs text-gray-400 space-y-1">
+            <li>• 过拟合：训练数据太少/特征太多</li>
+            <li>• 数据泄露：未来信息污染训练集</li>
+            <li>• 模型退化：市场结构变化后失效</li>
+            <li>• 策略容量：IC高不等于可扩容</li>
+            <li>• 始终用Walk-Forward验证</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>`
+
+  // ── Initial chart renders ────────────────────────────────────────────
+  await loadTrainingChart(runs[0]?.id)
+  renderRegimeCharts(regime)
+  renderMLComparisonCharts(signals, models)
+}
+
+// ── SIGNAL DETAIL MODAL ──────────────────────────────────────────────────────
+window.showSignalDetail = function(ticker) {
+  axios.get(`${API}/api/ml/signals`).then(({ data }) => {
+    const s = data.signals.find(x => x.ticker === ticker)
+    if (!s) return
+    document.getElementById('signalModalContent').innerHTML = `
+      <div class="flex justify-between items-start mb-5">
+        <div>
+          <h2 class="text-xl font-bold text-white">${s.ticker} — ML信号详情</h2>
+          <p class="text-xs text-gray-400">${s.name} · ${s.sector}</p>
+        </div>
+        <button onclick="document.getElementById('signalModal').classList.add('hidden')" class="text-gray-400 hover:text-white text-xl">&times;</button>
+      </div>
+
+      <!-- Signal Summary -->
+      <div class="grid grid-cols-4 gap-3 mb-5">
+        <div class="bg-[#111827] rounded p-3 text-center">
+          <div class="text-[10px] text-gray-500 mb-1">信号强度</div>
+          <div class="text-sm font-bold ${s.signalStrength.includes('BUY')?'text-emerald-400':'text-red-400'}">${s.signalStrength.replace('_',' ')}</div>
+        </div>
+        <div class="bg-[#111827] rounded p-3 text-center">
+          <div class="text-[10px] text-gray-500 mb-1">综合评分</div>
+          <div class="text-2xl font-bold text-white">${s.ensembleScore}</div>
+        </div>
+        <div class="bg-[#111827] rounded p-3 text-center">
+          <div class="text-[10px] text-gray-500 mb-1">RF预测(6M)</div>
+          <div class="text-xl font-bold ${s.rfPredictedReturn>=0?'text-emerald-400':'text-red-400'}">${s.rfPredictedReturn>=0?'+':''}${s.rfPredictedReturn.toFixed(1)}%</div>
+        </div>
+        <div class="bg-[#111827] rounded p-3 text-center">
+          <div class="text-[10px] text-gray-500 mb-1">LSTM预测(30D)</div>
+          <div class="text-xl font-bold ${s.lstmPredictedReturn>=0?'text-emerald-400':'text-red-400'}">${s.lstmPredictedReturn>=0?'+':''}${s.lstmPredictedReturn.toFixed(1)}%</div>
+        </div>
+      </div>
+
+      <!-- Probabilistic Output -->
+      <div class="bg-blue-900/20 border border-blue-800/30 rounded p-3 mb-5">
+        <div class="text-[10px] text-blue-300 font-semibold mb-1">概率输出（非确定性）— Probabilistic, not Absolute</div>
+        <div class="text-sm text-gray-300">置信区间 [<span class="text-blue-300 font-bold">${s.confidenceInterval[0].toFixed(1)}%</span>, <span class="text-blue-300 font-bold">${s.confidenceInterval[1].toFixed(1)}%</span>] @ <span class="text-blue-400 font-bold">${s.confidencePct}%</span> 置信度</div>
+        <div class="text-xs text-gray-500 mt-1">相比传统DCF的精确值输出（如"内在价值=$142.50"），ML模型给出概率范围，更真实反映市场不确定性</div>
+      </div>
+
+      <div class="grid grid-cols-2 gap-4 mb-4">
+        <!-- Feature Importance -->
+        <div>
+          <div class="text-xs font-semibold text-gray-400 uppercase mb-2">特征重要性 (Random Forest学习)</div>
+          ${s.featureImportance.map(f => `
+          <div class="flex items-center gap-2 mb-1.5">
+            <span class="text-[11px] text-gray-400 w-36 truncate">${f.feature}</span>
+            <div class="flex-1 score-bar"><div class="score-bar-fill bg-purple-500" style="width:${f.importance*100}%"></div></div>
+            <span class="text-[11px] text-gray-300 w-8 text-right">${(f.importance*100).toFixed(0)}%</span>
+          </div>`).join('')}
+        </div>
+        <!-- Learned vs Hardcoded Weights -->
+        <div>
+          <div class="text-xs font-semibold text-gray-400 uppercase mb-2">ML学习权重 vs 硬编码权重</div>
+          ${s.learnedWeights.map(w => `
+          <div class="flex items-center gap-2 mb-1.5">
+            <span class="text-[11px] text-gray-400 w-32 truncate">${w.factor}</span>
+            <span class="text-[11px] font-bold text-white w-8">${w.weight}%</span>
+            <span class="text-[11px] ${w.vsHardcoded>0?'text-emerald-400':w.vsHardcoded<0?'text-red-400':'text-gray-500'} w-10">${w.vsHardcoded>0?'+':''}${w.vsHardcoded}%</span>
+            <div class="flex-1 score-bar"><div class="score-bar-fill ${w.weight>=25?'bg-cyan-500':'bg-blue-500'}" style="width:${w.weight*3}%"></div></div>
+          </div>`).join('')}
+          <div class="text-[10px] text-gray-600 mt-1">vsHardcoded = 与固定权重的偏差（绿=上调，红=下调）</div>
+        </div>
+      </div>
+
+      <!-- Raw Features -->
+      <div class="bg-[#111827] rounded p-3">
+        <div class="text-[10px] text-gray-500 uppercase mb-2">X_live 输入特征（传入模型的原始数据）</div>
+        <div class="grid grid-cols-3 gap-2">
+          ${Object.entries(s.features).map(([k,v]) => `
+          <div class="text-xs"><span class="text-gray-500">${k}:</span> <span class="font-mono text-white">${typeof v==='number'?v.toFixed(2):v}</span></div>`).join('')}
+        </div>
+      </div>`
+    document.getElementById('signalModal').classList.remove('hidden')
+  })
+}
+window.closeSigModal = function(e) {
+  if (e.target.id === 'signalModal') document.getElementById('signalModal').classList.add('hidden')
+}
+
+// ── ML TAB SWITCHER ──────────────────────────────────────────────────────────
+window.mlTab = function(tab, btn) {
+  ['signals','models','training','regime','comparison'].forEach(t => {
+    const el = document.getElementById(`ml-${t}`)
+    if (el) el.classList.toggle('hidden', t !== tab)
+  })
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'))
+  btn.classList.add('active')
+  // Lazy render charts when tab activates
+  if (tab === 'regime') setTimeout(() => {
+    axios.get(`${API}/api/ml/regime`).then(r => renderRegimeCharts(r.data))
+  }, 100)
+  if (tab === 'comparison') setTimeout(() => {
+    Promise.all([axios.get(`${API}/api/ml/signals`), axios.get(`${API}/api/ml/models`)]).then(([sRes, mRes]) => {
+      renderMLComparisonCharts(sRes.data.signals, mRes.data.models)
+    })
+  }, 100)
+}
+
+// ── TRAINING CHART LOADER ────────────────────────────────────────────────────
+window.loadTrainingChart = async function(id) {
+  if (!id) return
+  const { data: run } = await axios.get(`${API}/api/ml/training/${id}`)
+
+  // Loss curve
+  const lossCtx = document.getElementById('trainLossChart')?.getContext('2d')
+  if (lossCtx) {
+    if (charts.trainLoss) charts.trainLoss.destroy()
+    charts.trainLoss = new Chart(lossCtx, {
+      type: 'line',
+      data: {
+        labels: run.trainingCurve.map(p => p.step),
+        datasets: [
+          { label: 'Train Loss', data: run.trainingCurve.map(p => p.trainLoss), borderColor: '#22d3ee', borderWidth: 2, pointRadius: 0, tension: 0.4 },
+          { label: 'Val Loss',   data: run.trainingCurve.map(p => p.valLoss),   borderColor: '#f59e0b', borderWidth: 2, pointRadius: 0, tension: 0.4, borderDash: [4,2] },
+        ]
+      },
+      options: { ...chartOpts('Loss'), plugins: { legend: { display: true, labels: { color: '#9ca3af', font: { size: 10 }, boxWidth: 12 } } } }
+    })
+  }
+
+  // Feature importance
+  const impCtx = document.getElementById('featImpChart')?.getContext('2d')
+  if (impCtx && run.featureImportances) {
+    if (charts.featImp) charts.featImp.destroy()
+    const sorted = [...run.featureImportances].sort((a,b) => b.importance - a.importance)
+    charts.featImp = new Chart(impCtx, {
+      type: 'bar',
+      data: {
+        labels: sorted.map(f => f.feature.replace(/_/g,' ')),
+        datasets: [{ data: sorted.map(f => (f.importance*100).toFixed(1)), backgroundColor: 'rgba(139,92,246,0.7)', borderRadius: 4 }]
+      },
+      options: { ...chartOpts('Importance %'), plugins: { legend: { display: false } }, indexAxis: 'y' }
+    })
+  }
+}
+
+// ── REGIME CHARTS ────────────────────────────────────────────────────────────
+function renderRegimeCharts(regime) {
+  // VIX history line chart
+  const rCtx = document.getElementById('regimeChart')?.getContext('2d')
+  if (rCtx) {
+    if (charts.regime) charts.regime.destroy()
+    const pts = regime.regimeHistory.filter((_,i)=>i%3===0)
+    charts.regime = new Chart(rCtx, {
+      type: 'line',
+      data: {
+        labels: pts.map(p => p.date.slice(5)),
+        datasets: [
+          { label: 'VIX', data: pts.map(p => p.vix), borderColor: '#ef4444', borderWidth: 1.5, pointRadius: 0, yAxisID: 'y', tension: 0.3 },
+          { label: 'IG Spread(bp)', data: pts.map(p => p.spread), borderColor: '#f59e0b', borderWidth: 1.5, pointRadius: 0, yAxisID: 'y1', tension: 0.3 },
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: { duration: 400 },
+        plugins: { legend: { display: true, labels: { color: '#9ca3af', font: { size: 10 }, boxWidth: 12 } }, tooltip: { backgroundColor: '#1a2540', titleColor: '#9ca3af', bodyColor: '#e5e7eb', borderColor: '#1e2d4a', borderWidth: 1 } },
+        scales: {
+          x: { grid: { color: '#111827' }, ticks: { color: '#4b5563', font: { size: 9 }, maxTicksLimit: 8 } },
+          y: { grid: { color: '#111827' }, ticks: { color: '#ef4444', font: { size: 9 } }, position: 'left' },
+          y1: { grid: { drawOnChartArea: false }, ticks: { color: '#f59e0b', font: { size: 9 } }, position: 'right' },
+        }
+      }
+    })
+  }
+  // Probability pie
+  const pieCtx = document.getElementById('regimePieChart')?.getContext('2d')
+  if (pieCtx) {
+    if (charts.regimePie) charts.regimePie.destroy()
+    charts.regimePie = new Chart(pieCtx, {
+      type: 'doughnut',
+      data: {
+        labels: regime.regimeProbabilities.map(r => r.regime),
+        datasets: [{ data: regime.regimeProbabilities.map(r => r.probability), backgroundColor: ['#10b981','#ef4444','#f59e0b'], borderWidth: 0 }]
+      },
+      options: { plugins: { legend: { display: false } }, cutout: '65%' }
+    })
+  }
+}
+
+// ── ML COMPARISON CHARTS ──────────────────────────────────────────────────────
+function renderMLComparisonCharts(signals, models) {
+  // ML vs Rule predicted returns
+  const cmpCtx = document.getElementById('mlVsRuleChart')?.getContext('2d')
+  if (cmpCtx) {
+    if (charts.mlVsRule) charts.mlVsRule.destroy()
+    charts.mlVsRule = new Chart(cmpCtx, {
+      type: 'bar',
+      data: {
+        labels: signals.map(s => s.ticker),
+        datasets: [
+          { label: 'RF预测收益%', data: signals.map(s => s.rfPredictedReturn), backgroundColor: 'rgba(139,92,246,0.7)', borderRadius: 4 },
+          { label: '传统五因子评分', data: signals.map(s => s.ensembleScore/5), backgroundColor: 'rgba(75,85,99,0.5)', borderRadius: 4 },
+        ]
+      },
+      options: { ...chartOpts('%'), plugins: { legend: { display: true, labels: { color: '#9ca3af', font: { size: 10 }, boxWidth: 12 } } } }
+    })
+  }
+  // Dynamic weight comparison for META (first signal)
+  const wCtx = document.getElementById('weightCompChart')?.getContext('2d')
+  const metaSig = signals[0]
+  if (wCtx && metaSig) {
+    if (charts.weightComp) charts.weightComp.destroy()
+    const hardcoded = [30, 25, 20, 15, 10]
+    const mlLearned = metaSig.learnedWeights.slice(0,5).map(w => w.weight)
+    charts.weightComp = new Chart(wCtx, {
+      type: 'radar',
+      data: {
+        labels: ['成长', '估值', '质量', '安全', '动量'],
+        datasets: [
+          { label: '硬编码(30/25/20/15/10)', data: hardcoded, borderColor: '#6b7280', backgroundColor: 'rgba(107,114,128,0.1)', borderWidth: 1.5, pointRadius: 3 },
+          { label: `ML学习权重(${metaSig.ticker})`, data: mlLearned, borderColor: '#8b5cf6', backgroundColor: 'rgba(139,92,246,0.15)', borderWidth: 2, pointRadius: 3 },
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: { duration: 400 },
+        plugins: { legend: { display: true, labels: { color: '#9ca3af', font: { size: 10 }, boxWidth: 12 } }, tooltip: { backgroundColor: '#1a2540', titleColor: '#9ca3af', bodyColor: '#e5e7eb', borderColor: '#1e2d4a', borderWidth: 1 } },
+        scales: { r: { grid: { color: '#1e2d4a' }, ticks: { color: '#4b5563', font: { size: 9 }, backdropColor: 'transparent' }, pointLabels: { color: '#9ca3af', font: { size: 10 } } } }
+      }
+    })
+  }
+}
+
+// ── SIGNAL BADGE HELPER ───────────────────────────────────────────────────────
+function signalBadge(s) {
+  return s==='STRONG_BUY'?'bg-emerald-600/30 text-emerald-300 border border-emerald-600/40 text-[10px] px-2 py-0.5 rounded-full font-semibold':
+         s==='BUY'?'bg-emerald-900/30 text-emerald-400 border border-emerald-800/40 text-[10px] px-2 py-0.5 rounded-full':
+         s==='NEUTRAL'?'bg-gray-700/30 text-gray-400 border border-gray-600/40 text-[10px] px-2 py-0.5 rounded-full':
+         s==='SELL'?'bg-red-900/30 text-red-400 border border-red-800/40 text-[10px] px-2 py-0.5 rounded-full':
+         'bg-red-700/30 text-red-300 border border-red-700/40 text-[10px] px-2 py-0.5 rounded-full font-semibold'
 }
 
 // ╔══════════════════════════════════════════════════════════════════════╗
