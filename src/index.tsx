@@ -364,51 +364,51 @@ app.get('/', (c) => {
 <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
 <link rel="stylesheet" href="/static/styles.css">
 </head>
-<body style="background:#0d0d0d;color:#e8e8e8" class="font-sans">
+<body class="font-sans" style="background:#f5f6fa;color:#111827">
 
 <!-- SIDEBAR -->
-<div id="sidebar" class="fixed left-0 top-0 h-full w-60 z-50 flex flex-col" style="background:#0d0d0d;border-right:1px solid #2d2d3d">
-  <div class="px-5 py-4" style="border-bottom:1px solid #2d2d3d">
+<div id="sidebar" class="fixed left-0 top-0 h-full w-60 z-50 flex flex-col" style="background:#ffffff;border-right:1px solid #e2e4ec;box-shadow:2px 0 8px rgba(0,0,0,0.05)">
+  <div class="px-5 py-4" style="border-bottom:1px solid #e2e4ec">
     <div class="flex items-center gap-3">
-      <div class="w-8 h-8 rounded-lg flex items-center justify-center" style="background:linear-gradient(135deg,#448aff,#00b0ff)">
+      <div class="w-9 h-9 rounded-lg flex items-center justify-center" style="background:linear-gradient(135deg,#4f46e5,#2563eb)">
         <i class="fas fa-chart-line text-white text-sm"></i>
       </div>
       <div>
-        <div class="text-white font-bold text-sm tracking-wide">QuantAlpha</div>
-        <div class="text-[10px]" style="color:#00b0ff">机构量化平台</div>
+        <div class="font-bold text-sm tracking-wide" style="color:#111827">QuantAlpha</div>
+        <div class="text-[10px]" style="color:#6b7280">机构量化平台</div>
       </div>
     </div>
   </div>
-  <nav class="flex-1 py-4 overflow-y-auto">
-    <div class="px-3 mb-2">
-      <p class="text-[10px] uppercase tracking-widest px-2 mb-1" style="color:#555568">核心模块</p>
+  <nav class="flex-1 py-3 overflow-y-auto">
+    <div class="px-3 mb-1">
+      <p class="text-[10px] uppercase tracking-widest px-2 mb-2" style="color:#9ca3af;letter-spacing:0.08em">核心模块</p>
       ${navItems().map(n => `
       <button onclick="navigate('${n.id}')" id="nav-${n.id}"
-        class="nav-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg mb-0.5 text-sm transition-all" style="color:#8a8a9a">
-        <i class="${n.icon} w-4 text-center"></i>
-        <span>${n.label}</span>
-        ${n.badge ? `<span class="ml-auto text-[10px] px-1.5 py-0.5 rounded-full" style="background:rgba(0,176,255,0.15);color:#00b0ff">${n.badge}</span>` : ''}
+        class="nav-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg mb-0.5 text-sm transition-all" style="color:#6b7280">
+        <i class="${n.icon} w-4 text-center text-sm"></i>
+        <span class="text-sm">${n.label}</span>
+        ${n.badge ? `<span class="ml-auto text-[10px] px-1.5 py-0.5 rounded-full font-bold" style="background:#eff6ff;color:#4f46e5">${n.badge}</span>` : ''}
       </button>`).join('')}
     </div>
   </nav>
-  <div class="px-5 py-3" style="border-top:1px solid #2d2d3d">
+  <div class="px-5 py-3" style="border-top:1px solid #e2e4ec">
     <div class="flex items-center gap-2">
-      <div class="w-2 h-2 rounded-full animate-pulse" style="background:#00c853"></div>
-      <span class="text-[11px]" style="color:#8a8a9a">市场开盘中</span>
-      <span id="clock" class="ml-auto text-[11px]" style="color:#555568"></span>
+      <div class="w-2 h-2 rounded-full animate-pulse" style="background:#059669"></div>
+      <span class="text-[11px]" style="color:#6b7280">市场开盘中</span>
+      <span id="clock" class="ml-auto text-[11px] font-mono" style="color:#9ca3af"></span>
     </div>
-    <div class="mt-2 text-[10px]" style="color:#3d3d50">Data: Bloomberg → yfinance → EDGAR</div>
+    <div class="mt-1.5 text-[10px]" style="color:#9ca3af">Yahoo Finance · FRED · CBOE · FactSet</div>
   </div>
 </div>
 
 <!-- MAIN CONTENT -->
-<div class="ml-60 min-h-screen">
+<div class="ml-60 min-h-screen" style="background:#f5f6fa">
   <!-- TOP BAR -->
-  <div class="sticky top-0 z-40 backdrop-blur px-6 py-3 flex items-center gap-4" style="background:rgba(13,13,13,0.95);border-bottom:1px solid #2d2d3d">
-    <div id="page-title" class="text-white font-semibold text-lg">总控台 — 机构市场监控</div>
+  <div class="sticky top-0 z-40 px-6 py-3 flex items-center gap-4" style="background:rgba(255,255,255,0.95);backdrop-filter:blur(8px);border-bottom:1px solid #e2e4ec;box-shadow:0 1px 3px rgba(0,0,0,0.06)">
+    <div id="page-title" class="font-semibold text-base" style="color:#1e2440">总控台 — 机构市场监控</div>
     <div class="ml-auto flex items-center gap-3">
       <div id="market-ticker" class="flex gap-4 text-xs"></div>
-      <button onclick="refreshAll()" class="px-3 py-1.5 rounded text-xs transition" style="background:rgba(68,138,255,0.1);border:1px solid rgba(68,138,255,0.3);color:#448aff">
+      <button onclick="refreshAll()" class="px-3 py-1.5 rounded-lg text-xs font-medium transition" style="background:#eff6ff;border:1px solid #bfdbfe;color:#2563eb">
         <i class="fas fa-sync-alt mr-1"></i>刷新
       </button>
     </div>
@@ -416,10 +416,9 @@ app.get('/', (c) => {
 
   <!-- PAGE CONTENT -->
   <div id="page-content" class="p-6">
-    <div class="text-center py-20" style="color:#8a8a9a">加载中...</div>
+    <div class="text-center py-20" style="color:#9ca3af">加载中...</div>
   </div>
 </div>
-
 <script src="/static/app.js"></script>
 </body>
 </html>`)

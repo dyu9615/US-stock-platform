@@ -100,10 +100,10 @@ export const FIVE_FACTOR_WEIGHTS = {
 
 // ── HARD FILTER CRITERIA (from yahoo_finance.py) ─────────────────────────────
 export const HARD_FILTER = {
-  marketCapMin:    5,    // $5B minimum
+  marketCapMin:    10,   // $10B minimum (large-cap focus)
   forwardPEMin:    0,    // must be positive
   revenueGrowthMin: 0,   // must be growing
-  grossMarginMin:  0.20, // >20%
+  grossMarginMin:  0.0,  // user-defined via screener UI
 };
 
 // ── S&P 500 SAMPLE UNIVERSE (美股 SP500核心成分) ────────────────────────────
@@ -2300,41 +2300,41 @@ function _ago(h: number): { date: string; time: string } {
 
 export const simulatedNewsArticles: NewsArticle[] = [
   // AI_Capex_Bubble
-  { ..._ago(1),  mandate:'AI_Capex_Bubble',       title:'Nvidia Q1 Data Center Revenue Surges 427% YoY; CEO Says "Next Industrial Revolution Has Begun"',              source:'Wall Street Journal',  link:'#', sentiment:'bullish' },
-  { ..._ago(3),  mandate:'AI_Capex_Bubble',       title:'Microsoft Azure Capex Guidance Raised to $80B — Analysts Split on AI Monetization Timeline',                 source:'Bloomberg',            link:'#', sentiment:'neutral' },
-  { ..._ago(5),  mandate:'AI_Capex_Bubble',       title:'DeepSeek R2 Leak Claims 10× Efficiency Gain; Threatens Hyperscaler GPU Demand Thesis',                       source:'Financial Times',      link:'#', sentiment:'bearish' },
-  { ..._ago(8),  mandate:'AI_Capex_Bubble',       title:'OpenAI Stargate Infrastructure Spend: $500B Over 4 Years — Where Does the Money Go?',                        source:'CNBC',                 link:'#', sentiment:'neutral' },
-  { ..._ago(12), mandate:'AI_Capex_Bubble',       title:'Goldman Sachs: AI Capex Bubble Risk "Elevated" — ROI Must Materialize by 2026 or Multiple Compression Likely', source:'Goldman Sachs Research',link:'#', sentiment:'bearish' },
-  { ..._ago(18), mandate:'AI_Capex_Bubble',       title:'AMD MI300X Server Shipments Accelerate; Provides Alternative to Nvidia in Enterprise AI Workloads',           source:'Reuters',              link:'#', sentiment:'bullish' },
+  { ..._ago(1),  mandate:'AI_Capex_Bubble',       title:'Nvidia Q1 Data Center Revenue Surges 427% YoY; CEO Says "Next Industrial Revolution Has Begun"',              source:'Wall Street Journal',  link:'https://news.google.com/search?q=Nvidia+Q1+Data+Center+Revenue+Surges+427%&hl=en-US&gl=US&ceid=US:en', sentiment:'bullish' },
+  { ..._ago(3),  mandate:'AI_Capex_Bubble',       title:'Microsoft Azure Capex Guidance Raised to $80B — Analysts Split on AI Monetization Timeline',                 source:'Bloomberg',            link:'https://news.google.com/search?q=Microsoft+Azure+Capex+Guidance+Raised+to+$80B&hl=en-US&gl=US&ceid=US:en', sentiment:'neutral' },
+  { ..._ago(5),  mandate:'AI_Capex_Bubble',       title:'DeepSeek R2 Leak Claims 10× Efficiency Gain; Threatens Hyperscaler GPU Demand Thesis',                       source:'Financial Times',      link:'https://news.google.com/search?q=DeepSeek+R2+Leak+Claims+10×+Efficiency+Gain;&hl=en-US&gl=US&ceid=US:en', sentiment:'bearish' },
+  { ..._ago(8),  mandate:'AI_Capex_Bubble',       title:'OpenAI Stargate Infrastructure Spend: $500B Over 4 Years — Where Does the Money Go?',                        source:'CNBC',                 link:'https://news.google.com/search?q=OpenAI+Stargate+Infrastructure+Spend+$500B+Over+4&hl=en-US&gl=US&ceid=US:en', sentiment:'neutral' },
+  { ..._ago(12), mandate:'AI_Capex_Bubble',       title:'Goldman Sachs: AI Capex Bubble Risk "Elevated" — ROI Must Materialize by 2026 or Multiple Compression Likely', source:'Goldman Sachs Research',link:'https://news.google.com/search?q=Goldman+Sachs+AI+Capex+Bubble+Risk+Elevated&hl=en-US&gl=US&ceid=US:en', sentiment:'bearish' },
+  { ..._ago(18), mandate:'AI_Capex_Bubble',       title:'AMD MI300X Server Shipments Accelerate; Provides Alternative to Nvidia in Enterprise AI Workloads',           source:'Reuters',              link:'https://news.google.com/search?q=AMD+MI300X+Server+Shipments+Accelerate;+Provides+Alternative&hl=en-US&gl=US&ceid=US:en', sentiment:'bullish' },
 
   // Geopolitics
-  { ..._ago(2),  mandate:'Geopolitics_SupplyChain', title:'US Imposes 145% Tariff on Chinese EV Batteries; EU Weighs Retaliatory Measures on American Ag Exports',    source:'Reuters',              link:'#', sentiment:'bearish' },
-  { ..._ago(4),  mandate:'Geopolitics_SupplyChain', title:'TSMC Arizona Fab Yields Improve to 95%; Apple to Source 30% of A-Series Chips from US Facility by 2027',   source:'Bloomberg',            link:'#', sentiment:'bullish' },
-  { ..._ago(7),  mandate:'Geopolitics_SupplyChain', title:'Japan Semiconductor Export Restrictions Tighten; Dutch ASML Faces Expanded China Sales Ban',                source:'Financial Times',      link:'#', sentiment:'bearish' },
-  { ..._ago(10), mandate:'Geopolitics_SupplyChain', title:'China Retaliates with Rare Earth Export Controls — Cobalt, Gallium, Germanium Shipments Halted',            source:'Wall Street Journal',  link:'#', sentiment:'bearish' },
-  { ..._ago(14), mandate:'Geopolitics_SupplyChain', title:'India as Supply Chain Alternative: Apple Shifts 25% of iPhone Assembly; Samsung Follows',                   source:'Economic Times',       link:'#', sentiment:'bullish' },
+  { ..._ago(2),  mandate:'Geopolitics_SupplyChain', title:'US Imposes 145% Tariff on Chinese EV Batteries; EU Weighs Retaliatory Measures on American Ag Exports',    source:'Reuters',              link:'https://news.google.com/search?q=US+Imposes+145%+Tariff+on+Chinese+EV&hl=en-US&gl=US&ceid=US:en', sentiment:'bearish' },
+  { ..._ago(4),  mandate:'Geopolitics_SupplyChain', title:'TSMC Arizona Fab Yields Improve to 95%; Apple to Source 30% of A-Series Chips from US Facility by 2027',   source:'Bloomberg',            link:'https://news.google.com/search?q=TSMC+Arizona+Fab+Yields+Improve+to+95%;&hl=en-US&gl=US&ceid=US:en', sentiment:'bullish' },
+  { ..._ago(7),  mandate:'Geopolitics_SupplyChain', title:'Japan Semiconductor Export Restrictions Tighten; Dutch ASML Faces Expanded China Sales Ban',                source:'Financial Times',      link:'https://news.google.com/search?q=Japan+Semiconductor+Export+Restrictions+Tighten;+Dutch+ASML&hl=en-US&gl=US&ceid=US:en', sentiment:'bearish' },
+  { ..._ago(10), mandate:'Geopolitics_SupplyChain', title:'China Retaliates with Rare Earth Export Controls — Cobalt, Gallium, Germanium Shipments Halted',            source:'Wall Street Journal',  link:'https://news.google.com/search?q=China+Retaliates+with+Rare+Earth+Export+Controls&hl=en-US&gl=US&ceid=US:en', sentiment:'bearish' },
+  { ..._ago(14), mandate:'Geopolitics_SupplyChain', title:'India as Supply Chain Alternative: Apple Shifts 25% of iPhone Assembly; Samsung Follows',                   source:'Economic Times',       link:'https://news.google.com/search?q=India+as+Supply+Chain+Alternative+Apple+Shifts&hl=en-US&gl=US&ceid=US:en', sentiment:'bullish' },
 
   // Macro
-  { ..._ago(2),  mandate:'Macro_K_Shape',          title:'US CPI +3.2% YoY — Core Services Sticky at 4.1%; Fed Holds Rates Unchanged at FOMC',                       source:'Bloomberg',            link:'#', sentiment:'bearish' },
-  { ..._ago(5),  mandate:'Macro_K_Shape',          title:'Nonfarm Payrolls +275K Beat; Unemployment Ticks Up to 3.9% — Goldilocks or Stagflation Warning?',           source:'Wall Street Journal',  link:'#', sentiment:'neutral' },
-  { ..._ago(9),  mandate:'Macro_K_Shape',          title:'10-Year Treasury Yield Hits 4.6%; Real Yield at 2.3% — Pressure Mounts on Long-Duration Tech Multiples',    source:'CNBC',                 link:'#', sentiment:'bearish' },
-  { ..._ago(13), mandate:'Macro_K_Shape',          title:'Consumer Confidence Diverges Sharply: Top-Quintile Spending Up 12%, Bottom-Quintile Down 8% — K-Shape Widens', source:'Conference Board',   link:'#', sentiment:'neutral' },
-  { ..._ago(20), mandate:'Macro_K_Shape',          title:'Fed Minutes: "Higher for Longer" Consensus Solidifies; March Rate Cut Off the Table Entirely',               source:'Federal Reserve',      link:'#', sentiment:'bearish' },
+  { ..._ago(2),  mandate:'Macro_K_Shape',          title:'US CPI +3.2% YoY — Core Services Sticky at 4.1%; Fed Holds Rates Unchanged at FOMC',                       source:'Bloomberg',            link:'https://news.google.com/search?q=US+CPI++3.2%+YoY+—+Core+Services&hl=en-US&gl=US&ceid=US:en', sentiment:'bearish' },
+  { ..._ago(5),  mandate:'Macro_K_Shape',          title:'Nonfarm Payrolls +275K Beat; Unemployment Ticks Up to 3.9% — Goldilocks or Stagflation Warning?',           source:'Wall Street Journal',  link:'https://news.google.com/search?q=Nonfarm+Payrolls++275K+Beat;+Unemployment+Ticks+Up&hl=en-US&gl=US&ceid=US:en', sentiment:'neutral' },
+  { ..._ago(9),  mandate:'Macro_K_Shape',          title:'10-Year Treasury Yield Hits 4.6%; Real Yield at 2.3% — Pressure Mounts on Long-Duration Tech Multiples',    source:'CNBC',                 link:'https://news.google.com/search?q=10-Year+Treasury+Yield+Hits+4.6%;+Real+Yield&hl=en-US&gl=US&ceid=US:en', sentiment:'bearish' },
+  { ..._ago(13), mandate:'Macro_K_Shape',          title:'Consumer Confidence Diverges Sharply: Top-Quintile Spending Up 12%, Bottom-Quintile Down 8% — K-Shape Widens', source:'Conference Board',   link:'https://news.google.com/search?q=Consumer+Confidence+Diverges+Sharply+Top-Quintile+Spending+Up&hl=en-US&gl=US&ceid=US:en', sentiment:'neutral' },
+  { ..._ago(20), mandate:'Macro_K_Shape',          title:'Fed Minutes: "Higher for Longer" Consensus Solidifies; March Rate Cut Off the Table Entirely',               source:'Federal Reserve',      link:'https://news.google.com/search?q=Fed+Minutes+Higher+for+Longer+Consensus+Solidifies;&hl=en-US&gl=US&ceid=US:en', sentiment:'bearish' },
 
   // Distressed
-  { ..._ago(3),  mandate:'Distressed_Credit_RE',   title:'Brookfield Defaults on $1.1B Office CMBS in Los Angeles; Deed-in-Lieu Transferred to Servicer',             source:'Bloomberg',            link:'#', sentiment:'bearish' },
+  { ..._ago(3),  mandate:'Distressed_Credit_RE',   title:'Brookfield Defaults on $1.1B Office CMBS in Los Angeles; Deed-in-Lieu Transferred to Servicer',             source:'Bloomberg',            link:'https://news.google.com/search?q=Brookfield+Defaults+on+$1.1B+Office+CMBS+in&hl=en-US&gl=US&ceid=US:en', sentiment:'bearish' },
   { ..._ago(6),  mandate:'Distressed_Credit_RE',   title:"Private Credit Stress Test: 14% of Middle-Market LBOs Covenant Breach Expected in Next 6 Months — Moody's", source:"Moody's Analytics",   link:'#', sentiment:'bearish' },
-  { ..._ago(11), mandate:'Distressed_Credit_RE',   title:'Multifamily Cap Rate Expansion Continues: Sunbelt NOI Compression 18% YoY as Oversupply Peaks',             source:'Green Street',         link:'#', sentiment:'bearish' },
-  { ..._ago(15), mandate:'Distressed_Credit_RE',   title:'Apollo Raises $5B Distressed Real Estate Fund; Blackstone Actively Buying Discounted CMBS at 60c on Dollar', source:'Reuters',            link:'#', sentiment:'bullish' },
-  { ..._ago(22), mandate:'Distressed_Credit_RE',   title:'Bed Bath & Beyond Bankruptcy Update: Liquidation Auction Fetches $875M; PE Firms Eye Real Estate Leases',   source:'Financial Times',      link:'#', sentiment:'neutral' },
+  { ..._ago(11), mandate:'Distressed_Credit_RE',   title:'Multifamily Cap Rate Expansion Continues: Sunbelt NOI Compression 18% YoY as Oversupply Peaks',             source:'Green Street',         link:'https://news.google.com/search?q=Multifamily+Cap+Rate+Expansion+Continues+Sunbelt+NOI&hl=en-US&gl=US&ceid=US:en', sentiment:'bearish' },
+  { ..._ago(15), mandate:'Distressed_Credit_RE',   title:'Apollo Raises $5B Distressed Real Estate Fund; Blackstone Actively Buying Discounted CMBS at 60c on Dollar', source:'Reuters',            link:'https://news.google.com/search?q=Apollo+Raises+$5B+Distressed+Real+Estate+Fund;&hl=en-US&gl=US&ceid=US:en', sentiment:'bullish' },
+  { ..._ago(22), mandate:'Distressed_Credit_RE',   title:'Bed Bath & Beyond Bankruptcy Update: Liquidation Auction Fetches $875M; PE Firms Eye Real Estate Leases',   source:'Financial Times',      link:'https://news.google.com/search?q=Bed+Bath+&+Beyond+Bankruptcy+Update+Liquidation&hl=en-US&gl=US&ceid=US:en', sentiment:'neutral' },
 
   // Commodities_Gold_Oil
-  { ..._ago(1),  mandate:'Commodities_Gold_Oil',    title:'Gold Hits $2,450/oz — Record High as Real Yields Compress; Central Bank Buying Accelerates Amid Dollar Weakness', source:'Bloomberg',           link:'#', sentiment:'bullish' },
-  { ..._ago(4),  mandate:'Commodities_Gold_Oil',    title:'OPEC+ Extends 2.2M bpd Voluntary Cuts Through Q3 2026; WTI Crude Rallies 3.8% to $84/bbl',                       source:'Reuters',              link:'#', sentiment:'bullish' },
-  { ..._ago(7),  mandate:'Commodities_Gold_Oil',    title:'US SPR Drawdown Reaches Historic Low — Energy Dept. Signals No Refill Plans Before 2027 Election Cycle',          source:'Wall Street Journal',  link:'#', sentiment:'bearish' },
-  { ..._ago(11), mandate:'Commodities_Gold_Oil',    title:'Goldman Sachs Raises 12-Month Gold Target to $2,700 — Cites Dedollarization Thesis and EM Central Bank Demand',   source:'Goldman Sachs Research',link:'#', sentiment:'bullish' },
-  { ..._ago(16), mandate:'Commodities_Gold_Oil',    title:'EIA Inventory Build Surprises: +4.2M bbls vs -1.5M Expected; WTI Sells Off on Demand Concern',                   source:'EIA / Bloomberg',      link:'#', sentiment:'bearish' },
-  { ..._ago(24), mandate:'Commodities_Gold_Oil',    title:'Iran Strait of Hormuz Threat Pushes Brent Risk Premium to $8/bbl; Tanker Insurance Rates Surge',                  source:'Financial Times',      link:'#', sentiment:'bearish' },
+  { ..._ago(1),  mandate:'Commodities_Gold_Oil',    title:'Gold Hits $2,450/oz — Record High as Real Yields Compress; Central Bank Buying Accelerates Amid Dollar Weakness', source:'Bloomberg',           link:'https://news.google.com/search?q=Gold+Hits+$2,450/oz+—+Record+High+as&hl=en-US&gl=US&ceid=US:en', sentiment:'bullish' },
+  { ..._ago(4),  mandate:'Commodities_Gold_Oil',    title:'OPEC+ Extends 2.2M bpd Voluntary Cuts Through Q3 2026; WTI Crude Rallies 3.8% to $84/bbl',                       source:'Reuters',              link:'https://news.google.com/search?q=OPEC++Extends+2.2M+bpd+Voluntary+Cuts+Through&hl=en-US&gl=US&ceid=US:en', sentiment:'bullish' },
+  { ..._ago(7),  mandate:'Commodities_Gold_Oil',    title:'US SPR Drawdown Reaches Historic Low — Energy Dept. Signals No Refill Plans Before 2027 Election Cycle',          source:'Wall Street Journal',  link:'https://news.google.com/search?q=US+SPR+Drawdown+Reaches+Historic+Low+—&hl=en-US&gl=US&ceid=US:en', sentiment:'bearish' },
+  { ..._ago(11), mandate:'Commodities_Gold_Oil',    title:'Goldman Sachs Raises 12-Month Gold Target to $2,700 — Cites Dedollarization Thesis and EM Central Bank Demand',   source:'Goldman Sachs Research',link:'https://news.google.com/search?q=Goldman+Sachs+Raises+12-Month+Gold+Target+to&hl=en-US&gl=US&ceid=US:en', sentiment:'bullish' },
+  { ..._ago(16), mandate:'Commodities_Gold_Oil',    title:'EIA Inventory Build Surprises: +4.2M bbls vs -1.5M Expected; WTI Sells Off on Demand Concern',                   source:'EIA / Bloomberg',      link:'https://news.google.com/search?q=EIA+Inventory+Build+Surprises++4.2M+bbls+vs&hl=en-US&gl=US&ceid=US:en', sentiment:'bearish' },
+  { ..._ago(24), mandate:'Commodities_Gold_Oil',    title:'Iran Strait of Hormuz Threat Pushes Brent Risk Premium to $8/bbl; Tanker Insurance Rates Surge',                  source:'Financial Times',      link:'https://news.google.com/search?q=Iran+Strait+of+Hormuz+Threat+Pushes+Brent&hl=en-US&gl=US&ceid=US:en', sentiment:'bearish' },
 ];
 
 // ── Generate AI Morning Brief (simulated — production: call Claude/GPT API)
