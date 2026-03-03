@@ -22,6 +22,7 @@ const PAGE_TITLES = {
   screener:    '五因子筛选 Stock Screener',
   strategies:  '策略管理 Strategy Manager',
   mlfinance:   'ML for Finance — 机器学习信号引擎',
+  newsagent:   'News Intelligence — 机构新闻监控',
   research:    '研究论文库 Research Library',
   trading:     '交易模块 Trade Execution',
   backtest:    '回测平台 Backtesting',
@@ -75,6 +76,7 @@ async function renderPage(page) {
     case 'screener':    await renderScreener(container); break
     case 'strategies':  await renderStrategies(container); break
     case 'mlfinance':   await renderMLFinance(container); break
+    case 'newsagent':   await renderNewsAgent(container); break
     case 'research':    await renderResearch(container); break
     case 'trading':     await renderTrading(container); break
     case 'backtest':    await renderBacktest(container); break
@@ -2576,6 +2578,402 @@ async function renderPerformance(el) {
       options: { ...chartOpts('收益 ($K)'), plugins:{ legend:{ display:false } }, indexAxis:'y' }
     })
   }
+}
+
+// ╔══════════════════════════════════════════════════════════════════════╗
+// ║  9. NEWS AGENT  — Institutional News Intelligence                    ║
+// ╚══════════════════════════════════════════════════════════════════════╝
+async function renderNewsAgent(el) {
+  el.innerHTML = `<div class="flex items-center justify-center h-32 text-gray-400">
+    <i class="fas fa-spinner fa-spin mr-2"></i>Loading news feed…</div>`;
+
+  let mandatesData, articlesData, briefData, healthData;
+  try {
+    const [mR, aR, bR, hR] = await Promise.all([
+      axios.get(`${API}/api/news/mandates`),
+      axios.get(`${API}/api/news/articles`),
+      axios.get(`${API}/api/news/brief`),
+      axios.get(`${API}/api/news/health`),
+    ]);
+    mandatesData = mR.data;
+    articlesData = aR.data;
+    briefData    = bR.data;
+    healthData   = hR.data;
+  } catch(e) {
+    el.innerHTML = `<div class="text-red-400 p-8">API Error: ${e.message}</div>`;
+    return;
+  }
+
+  // ── colour maps ──────────────────────────────────────────────────────
+  const MANDATE_COLORS = {
+    AI_Capex_Bubble:        { bg: 'bg-blue-500/10',   border: 'border-blue-500/30',   text: 'text-blue-400',   pill: 'bg-blue-500/20 text-blue-300' },
+    Geopolitics_SupplyChain:{ bg: 'bg-red-500/10',    border: 'border-red-500/30',    text: 'text-red-400',    pill: 'bg-red-500/20 text-red-300'   },
+    Macro_K_Shape:          { bg: 'bg-amber-500/10',  border: 'border-amber-500/30',  text: 'text-amber-400',  pill: 'bg-amber-500/20 text-amber-300'},
+    Distressed_Credit_RE:   { bg: 'bg-purple-500/10', border: 'border-purple-500/30', text: 'text-purple-400', pill: 'bg-purple-500/20 text-purple-300'},
+  };
+  const SENTIMENT_STYLE = {
+    bullish: 'bg-emerald-500/20 text-emerald-300',
+    bearish: 'bg-red-500/20 text-red-300',
+    neutral: 'bg-gray-500/20 text-gray-400',
+  };
+  const URGENCY_STYLE = {
+    high:   'bg-red-500/20 text-red-300 border border-red-500/40',
+    medium: 'bg-amber-500/20 text-amber-300 border border-amber-500/40',
+    low:    'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40',
+  };
+
+  // ── active mandate filter state ───────────────────────────────────
+  window._naActiveMandate = window._naActiveMandate || 'ALL';
+
+  // ── mandate card builder ──────────────────────────────────────────
+  function mandateCard(m) {
+    const c  = MANDATE_COLORS[m.id] || MANDATE_COLORS.Macro_K_Shape;
+    const sb = m.sentimentBreakdown;
+    const total = sb.bullish + sb.bearish + sb.neutral || 1;
+    const bullPct = (sb.bullish / total * 100).toFixed(0);
+    const bearPct = (sb.bearish / total * 100).toFixed(0);
+    const isActive = window._naActiveMandate === m.id;
+    return `
+    <div onclick="window._naFilter('${m.id}')" id="na-card-${m.id}"
+      class="cursor-pointer rounded-xl border p-4 transition-all ${c.bg} ${c.border}
+             ${isActive ? 'ring-2 ring-offset-1 ring-offset-[#0a0e1a] ring-blue-400' : 'hover:brightness-110'}">
+      <div class="flex items-start justify-between mb-3">
+        <div class="flex items-center gap-2">
+          <i class="${m.icon} ${c.text} text-lg"></i>
+          <div>
+            <div class="text-white font-semibold text-sm leading-tight">${m.label}</div>
+            <div class="text-[10px] text-gray-500 mt-0.5">${m.id}</div>
+          </div>
+        </div>
+        <span class="${c.pill} text-xs px-2 py-0.5 rounded-full font-mono">${m.articleCount} art.</span>
+      </div>
+      <div class="text-[11px] text-gray-400 leading-snug mb-3">${m.description}</div>
+      <!-- Sentiment bar -->
+      <div class="mb-2">
+        <div class="flex justify-between text-[10px] text-gray-500 mb-1">
+          <span class="text-emerald-400">▲ ${sb.bullish} bull</span>
+          <span class="text-gray-500">● ${sb.neutral} neut</span>
+          <span class="text-red-400">▼ ${sb.bearish} bear</span>
+        </div>
+        <div class="h-1.5 rounded-full bg-[#1a2540] overflow-hidden flex">
+          <div class="bg-emerald-500 h-full transition-all" style="width:${bullPct}%"></div>
+          <div class="bg-gray-600 h-full transition-all" style="width:${(sb.neutral/total*100).toFixed(0)}%"></div>
+          <div class="bg-red-500 h-full transition-all" style="width:${bearPct}%"></div>
+        </div>
+      </div>
+      <!-- Boolean query chip -->
+      <div class="mt-2 font-mono text-[9px] text-gray-600 bg-[#0d1221] rounded px-2 py-1 truncate" title="${m.query}">
+        🔍 ${m.query.slice(0,60)}${m.query.length>60?'…':''}
+      </div>
+    </div>`;
+  }
+
+  // ── article row builder ────────────────────────────────────────────
+  function articleRow(a, idx) {
+    const c = MANDATE_COLORS[a.mandate] || MANDATE_COLORS.Macro_K_Shape;
+    const sentStyle = SENTIMENT_STYLE[a.sentiment] || SENTIMENT_STYLE.neutral;
+    const sentIcon  = a.sentiment === 'bullish' ? '▲' : a.sentiment === 'bearish' ? '▼' : '●';
+    return `
+    <tr class="${idx%2===0?'bg-[#0d1221]':'bg-[#0a0e1a]'} hover:bg-[#1a2540] transition-colors">
+      <td class="px-3 py-2.5 whitespace-nowrap">
+        <div class="text-[10px] font-mono text-gray-500">${a.date}</div>
+        <div class="text-[10px] font-mono text-gray-600">${a.time}</div>
+      </td>
+      <td class="px-3 py-2.5">
+        <span class="${c.pill} text-[10px] px-2 py-0.5 rounded-full">${a.mandate.replace(/_/g,' ')}</span>
+      </td>
+      <td class="px-3 py-2.5 max-w-xs">
+        <div class="text-xs text-gray-200 leading-snug">${_naHighlight(a.title, a.mandate)}</div>
+        <div class="text-[10px] text-gray-500 mt-0.5">${a.source}</div>
+      </td>
+      <td class="px-3 py-2.5 text-center">
+        <span class="${sentStyle} text-[10px] px-2 py-0.5 rounded-full font-mono">${sentIcon} ${a.sentiment}</span>
+      </td>
+      <td class="px-3 py-2.5 text-center">
+        <a href="${a.link}" class="text-blue-400 hover:text-blue-300 text-[10px]">
+          <i class="fas fa-external-link-alt"></i>
+        </a>
+      </td>
+    </tr>`;
+  }
+
+  // ── keyword highlight ───────────────────────────────────────────────
+  window._naKeywords = {};
+  mandatesData.mandates.forEach(m => {
+    window._naKeywords[m.id] = m.keywords || [];
+  });
+  function _naHighlight(title, mandateId) {
+    let result = title;
+    const kws = window._naKeywords[mandateId] || [];
+    kws.forEach(kw => {
+      const re = new RegExp(`(${kw})`, 'gi');
+      result = result.replace(re, '<mark class="bg-yellow-400/20 text-yellow-300 rounded px-0.5">$1</mark>');
+    });
+    return result;
+  }
+  window._naHighlight = _naHighlight;
+
+  // ── filter / re-render articles table ──────────────────────────────
+  window._naFilter = function(mandateId) {
+    const prev = window._naActiveMandate;
+    window._naActiveMandate = (prev === mandateId) ? 'ALL' : mandateId;
+    // Update card ring states
+    mandatesData.mandates.forEach(m => {
+      const card = document.getElementById('na-card-' + m.id);
+      if (!card) return;
+      if (window._naActiveMandate === m.id) {
+        card.classList.add('ring-2','ring-offset-1','ring-offset-[#0a0e1a]','ring-blue-400');
+      } else {
+        card.classList.remove('ring-2','ring-offset-1','ring-offset-[#0a0e1a]','ring-blue-400');
+      }
+    });
+    // Re-render articles
+    const filtered = window._naActiveMandate === 'ALL'
+      ? articlesData.articles
+      : articlesData.articles.filter(a => a.mandate === window._naActiveMandate);
+    const tbody = document.getElementById('na-article-tbody');
+    if (tbody) {
+      tbody.innerHTML = filtered.map((a,i) => articleRow(a,i)).join('');
+    }
+    const countEl = document.getElementById('na-article-count');
+    if (countEl) countEl.textContent = `${filtered.length} articles`;
+  };
+
+  // ── morning brief card ─────────────────────────────────────────────
+  function briefHeadlineCard(h) {
+    const c  = MANDATE_COLORS[h.mandate] || MANDATE_COLORS.Macro_K_Shape;
+    const ug = URGENCY_STYLE[h.urgency]  || URGENCY_STYLE.low;
+    const mandate = mandatesData.mandates.find(m => m.id === h.mandate);
+    return `
+    <div class="rounded-xl border ${c.border} ${c.bg} p-4">
+      <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center gap-2">
+          <i class="${mandate?.icon||'fas fa-newspaper'} ${c.text}"></i>
+          <span class="text-sm font-semibold text-white">${mandate?.label || h.mandate}</span>
+        </div>
+        <span class="${ug} text-[10px] px-2 py-0.5 rounded-full font-bold uppercase">${h.urgency}</span>
+      </div>
+      <p class="text-xs text-gray-300 leading-relaxed mb-3">${h.summary}</p>
+      <div class="border-t border-[#1e2d4a] pt-3">
+        <div class="text-[10px] text-gray-500 mb-1 uppercase tracking-wider">Recommended Action</div>
+        <div class="text-xs text-emerald-300 font-medium leading-snug">${h.action}</div>
+      </div>
+    </div>`;
+  }
+
+  // ── Python script reference card ───────────────────────────────────
+  const pythonRefCard = `
+  <div class="rounded-xl border border-[#1e2d4a] bg-[#0d1221] p-4">
+    <div class="flex items-center gap-2 mb-3">
+      <i class="fab fa-python text-yellow-400"></i>
+      <span class="text-sm font-semibold text-white">Production Pipeline — <code class="text-cyan-400 text-xs">news_agent.py</code></span>
+      <span class="ml-auto text-[10px] bg-yellow-500/20 text-yellow-400 px-2 py-0.5 rounded-full">Data Layer #4</span>
+    </div>
+    <div class="grid grid-cols-2 gap-3 mb-3">
+      <div class="bg-[#0a0e1a] rounded p-3">
+        <div class="text-[10px] text-gray-500 mb-1">Data Source</div>
+        <div class="text-xs text-white">Google News RSS + Boolean Search</div>
+        <div class="text-[10px] text-gray-500 mt-1">Zero cost · High signal/noise</div>
+      </div>
+      <div class="bg-[#0a0e1a] rounded p-3">
+        <div class="text-[10px] text-gray-500 mb-1">Stack</div>
+        <div class="text-xs text-white">feedparser · pandas · requests</div>
+        <div class="text-[10px] text-gray-500 mt-1">pip install feedparser pandas</div>
+      </div>
+      <div class="bg-[#0a0e1a] rounded p-3">
+        <div class="text-[10px] text-gray-500 mb-1">AI Brief Generation</div>
+        <div class="text-xs text-white">Claude 3.5 Sonnet API</div>
+        <div class="text-[10px] text-gray-500 mt-1">Mandate → structured action</div>
+      </div>
+      <div class="bg-[#0a0e1a] rounded p-3">
+        <div class="text-[10px] text-gray-500 mb-1">Production Deploy</div>
+        <div class="text-xs text-white">Cloudflare Worker Cron Trigger</div>
+        <div class="text-[10px] text-gray-500 mt-1">→ D1 Storage → /api/news/*</div>
+      </div>
+    </div>
+    <div class="bg-[#0a0e1a] rounded p-3 font-mono text-[10px] text-gray-400 leading-relaxed">
+      <div class="text-emerald-400 mb-1"># news_agent.py — core fetch loop</div>
+      <div class="text-gray-500">def fetch_mandate_news(days_back=1):</div>
+      <div class="text-gray-400 ml-4">base = "https://news.google.com/rss/search?q="</div>
+      <div class="text-gray-400 ml-4">for mandate_id, config in INVESTMENT_MANDATES.items():</div>
+      <div class="text-gray-400 ml-8">url = base + urllib.parse.quote(config["query"])</div>
+      <div class="text-gray-400 ml-8">feed = feedparser.parse(url)  <span class="text-cyan-400"># RSS → DataFrame</span></div>
+      <div class="text-gray-400 ml-8">df = keyword_filter(feed, config["keywords"])</div>
+      <div class="text-emerald-400 ml-4">return pd.concat(results)</div>
+    </div>
+  </div>`;
+
+  // ── health status row ──────────────────────────────────────────────
+  function healthRow(label, value, ok) {
+    return `<div class="flex items-center justify-between py-1.5 border-b border-[#1e2d4a]">
+      <span class="text-xs text-gray-400">${label}</span>
+      <span class="text-xs font-mono ${ok ? 'text-emerald-400' : 'text-amber-400'}">${value}</span>
+    </div>`;
+  }
+
+  // ── build final HTML ───────────────────────────────────────────────
+  const allArticles = articlesData.articles;
+  const sb = articlesData.sentimentBreakdown;
+
+  el.innerHTML = `
+  <!-- ── HEADER STRIP ─────────────────────────────────────────────── -->
+  <div class="flex items-center justify-between mb-5">
+    <div>
+      <h2 class="text-lg font-bold text-white flex items-center gap-2">
+        <i class="fas fa-newspaper text-cyan-400"></i>
+        News Intelligence
+        <span class="text-[11px] bg-cyan-500/20 text-cyan-400 px-2 py-0.5 rounded-full ml-1">4 Mandates</span>
+      </h2>
+      <p class="text-xs text-gray-500 mt-0.5">
+        Boolean-filtered Google News RSS · ${articlesData.total} articles · Claude 3.5 Sonnet brief
+      </p>
+    </div>
+    <!-- Agent health chip -->
+    <div class="flex items-center gap-3">
+      <div class="flex items-center gap-1.5 text-xs text-gray-400 bg-[#0d1221] border border-[#1e2d4a] rounded-lg px-3 py-1.5">
+        <div class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></div>
+        <span>Last run: <span class="text-white font-mono">${new Date(healthData.lastRun).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'})}</span></span>
+        <span class="text-gray-600">|</span>
+        <span>Next: <span class="text-cyan-400 font-mono">${healthData.runFrequency.split('(')[0].trim()}</span></span>
+      </div>
+      <div class="flex gap-2 text-xs">
+        <span class="bg-emerald-500/20 text-emerald-300 px-2 py-1 rounded">▲ ${sb.bullish} Bull</span>
+        <span class="bg-gray-500/20 text-gray-400 px-2 py-1 rounded">● ${sb.neutral} Neutral</span>
+        <span class="bg-red-500/20 text-red-300 px-2 py-1 rounded">▼ ${sb.bearish} Bear</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── MANDATE CARDS ────────────────────────────────────────────── -->
+  <div class="grid grid-cols-4 gap-3 mb-6">
+    ${mandatesData.mandates.map(m => mandateCard(m)).join('')}
+  </div>
+
+  <div class="grid grid-cols-3 gap-5">
+
+    <!-- ── LEFT 2/3: Article Feed + Brief ─────────────────────────── -->
+    <div class="col-span-2 space-y-5">
+
+      <!-- Article Feed Table -->
+      <div class="bg-[#0d1221] rounded-xl border border-[#1e2d4a] overflow-hidden">
+        <div class="flex items-center justify-between px-4 py-3 border-b border-[#1e2d4a]">
+          <div class="flex items-center gap-2">
+            <i class="fas fa-rss text-orange-400 text-sm"></i>
+            <span class="text-sm font-semibold text-white">Article Feed</span>
+            <span id="na-article-count" class="text-[10px] text-gray-500">${allArticles.length} articles</span>
+          </div>
+          <div class="flex items-center gap-2 text-[10px] text-gray-500">
+            <i class="fas fa-filter text-xs"></i>
+            <span>Click mandate card to filter</span>
+            <button onclick="window._naFilter('ALL')"
+              class="text-[10px] text-blue-400 hover:text-blue-300 border border-blue-500/30 px-2 py-0.5 rounded">
+              Show All
+            </button>
+          </div>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-left">
+            <thead class="bg-[#0a0e1a]">
+              <tr class="text-[10px] text-gray-500 uppercase tracking-wider">
+                <th class="px-3 py-2 whitespace-nowrap">Date / Time</th>
+                <th class="px-3 py-2">Mandate</th>
+                <th class="px-3 py-2">Headline · Source</th>
+                <th class="px-3 py-2 text-center">Sentiment</th>
+                <th class="px-3 py-2 text-center">Link</th>
+              </tr>
+            </thead>
+            <tbody id="na-article-tbody">
+              ${allArticles.map((a,i) => articleRow(a,i)).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- AI Morning Brief -->
+      <div class="bg-[#0d1221] rounded-xl border border-[#1e2d4a] overflow-hidden">
+        <div class="flex items-center justify-between px-4 py-3 border-b border-[#1e2d4a]">
+          <div class="flex items-center gap-2">
+            <i class="fas fa-robot text-violet-400 text-sm"></i>
+            <span class="text-sm font-semibold text-white">AI Morning Brief</span>
+            <span class="text-[10px] bg-violet-500/20 text-violet-300 px-2 py-0.5 rounded-full">${briefData.model}</span>
+          </div>
+          <div class="text-[10px] text-gray-500">
+            Generated: ${new Date(briefData.generatedAt).toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}
+          </div>
+        </div>
+        <!-- Mandate summaries -->
+        <div class="p-4 space-y-3">
+          ${briefData.headlines.map(h => briefHeadlineCard(h)).join('')}
+        </div>
+        <!-- Market call -->
+        <div class="mx-4 mb-4 rounded-xl border border-amber-500/30 bg-amber-500/5 p-4">
+          <div class="flex items-center gap-2 mb-2">
+            <i class="fas fa-broadcast-tower text-amber-400"></i>
+            <span class="text-sm font-semibold text-white">Overall Market Call</span>
+          </div>
+          <p class="text-xs text-amber-200 leading-relaxed">${briefData.marketCall}</p>
+        </div>
+      </div>
+
+    </div><!-- /col-span-2 -->
+
+    <!-- ── RIGHT 1/3: Health + Python Ref ──────────────────────────── -->
+    <div class="space-y-4">
+
+      <!-- Agent Health -->
+      <div class="bg-[#0d1221] rounded-xl border border-[#1e2d4a] p-4">
+        <div class="flex items-center gap-2 mb-3">
+          <i class="fas fa-heartbeat text-emerald-400 text-sm"></i>
+          <span class="text-sm font-semibold text-white">Agent Health</span>
+          <span class="ml-auto w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+        </div>
+        ${healthRow('Status', 'OPERATIONAL', true)}
+        ${healthRow('Total Articles', healthData.totalArticles, true)}
+        ${healthRow('Active Mandates', healthData.mandateCount, true)}
+        ${healthRow('Run Frequency', healthData.runFrequency.split('(')[1]?.replace(')','') || '6h', true)}
+        ${healthRow('Last Run', new Date(healthData.lastRun).toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}), true)}
+        ${healthRow('Next Run', new Date(healthData.nextRun).toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}), true)}
+        <div class="mt-3 text-[10px] text-gray-500 leading-snug">${healthData.productionNote}</div>
+      </div>
+
+      <!-- Mandate Schedule -->
+      <div class="bg-[#0d1221] rounded-xl border border-[#1e2d4a] p-4">
+        <div class="flex items-center gap-2 mb-3">
+          <i class="fas fa-tasks text-blue-400 text-sm"></i>
+          <span class="text-sm font-semibold text-white">Mandate Pipeline</span>
+        </div>
+        ${healthData.mandates.map(m => {
+          const c = MANDATE_COLORS[m.id] || MANDATE_COLORS.Macro_K_Shape;
+          return `<div class="flex items-center justify-between py-1.5 border-b border-[#1e2d4a]">
+            <span class="text-xs ${c.text}">${m.label}</span>
+            <span class="text-[10px] font-mono text-gray-400">${m.articleCount} art.</span>
+          </div>`;
+        }).join('')}
+        <div class="mt-3 text-[10px] text-gray-600 font-mono leading-relaxed">
+          Data: Google News RSS<br>
+          Filter: Boolean + keyword<br>
+          Storage: Cloudflare D1 (prod)
+        </div>
+      </div>
+
+      <!-- Python Reference (collapsed by default) -->
+      <div>
+        <button onclick="document.getElementById('na-py-panel').classList.toggle('hidden')"
+          class="w-full flex items-center justify-between px-3 py-2 rounded-lg border border-[#1e2d4a]
+                 bg-[#0d1221] text-xs text-gray-400 hover:text-white hover:border-yellow-500/40 transition mb-2">
+          <span class="flex items-center gap-2">
+            <i class="fab fa-python text-yellow-400"></i>
+            news_agent.py reference
+          </span>
+          <i class="fas fa-chevron-down text-[10px]"></i>
+        </button>
+        <div id="na-py-panel" class="hidden">
+          ${pythonRefCard}
+        </div>
+      </div>
+
+    </div><!-- /right col -->
+  </div><!-- /grid -->`;
 }
 
 // ── SHARED HELPERS ───────────────────────────────────────────────────────────

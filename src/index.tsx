@@ -16,6 +16,8 @@ import {
   fundamentalUniverse, priceVolumeUniverse,
   currentMacroSnapshot, currentERPSnapshot,
   macroHistory, erpHistory, dataCenterHealth,
+  // News Agent — Data Layer #4
+  NEWS_MANDATES, simulatedNewsArticles, morningBrief, newsAgentHealth,
 } from './data/usMarketData'
 
 const app = new Hono()
@@ -283,6 +285,71 @@ app.get('/api/dc/dashboard', (c) => {
   })
 })
 
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║  NEWS AGENT APIs  — Data Layer #4                                       ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
+
+// GET /api/news/mandates — return all 4 investment mandates with metadata
+app.get('/api/news/mandates', (c) => {
+  return c.json({
+    total: NEWS_MANDATES.length,
+    mandates: NEWS_MANDATES.map(m => ({
+      ...m,
+      articleCount: simulatedNewsArticles.filter(a => a.mandate === m.id).length,
+      sentimentBreakdown: {
+        bullish: simulatedNewsArticles.filter(a => a.mandate === m.id && a.sentiment === 'bullish').length,
+        bearish: simulatedNewsArticles.filter(a => a.mandate === m.id && a.sentiment === 'bearish').length,
+        neutral: simulatedNewsArticles.filter(a => a.mandate === m.id && a.sentiment === 'neutral').length,
+      },
+    })),
+  })
+})
+
+// GET /api/news/articles?mandate=AI_Capex_Bubble&days=2&limit=20
+app.get('/api/news/articles', (c) => {
+  const mandate = c.req.query('mandate') || ''
+  const days    = parseInt(c.req.query('days')  || '3')
+  const limit   = parseInt(c.req.query('limit') || '50')
+  const cutoff  = new Date(Date.now() - days * 86_400_000).toISOString()
+
+  let articles = [...simulatedNewsArticles]
+  if (mandate) articles = articles.filter(a => a.mandate === mandate)
+  // Filter by recency
+  articles = articles.filter(a => `${a.date}T${a.time}` >= cutoff.slice(0, 19))
+  // Sort newest first
+  articles.sort((a, b) => `${b.date}T${b.time}`.localeCompare(`${a.date}T${a.time}`))
+
+  return c.json({
+    total: articles.length,
+    mandate: mandate || 'ALL',
+    days,
+    generatedAt: new Date().toISOString(),
+    sentimentBreakdown: {
+      bullish: articles.filter(a => a.sentiment === 'bullish').length,
+      bearish: articles.filter(a => a.sentiment === 'bearish').length,
+      neutral: articles.filter(a => a.sentiment === 'neutral').length,
+    },
+    articles: articles.slice(0, limit),
+  })
+})
+
+// GET /api/news/brief — AI-generated morning brief (simulated Claude 3.5 Sonnet)
+app.get('/api/news/brief', (c) => c.json(morningBrief))
+
+// GET /api/news/health — agent run schedule + pipeline metadata
+app.get('/api/news/health', (c) => {
+  return c.json({
+    ...newsAgentHealth,
+    mandates: NEWS_MANDATES.map(m => ({
+      id: m.id, label: m.label,
+      articleCount: simulatedNewsArticles.filter(a => a.mandate === m.id).length,
+      query: m.query,
+    })),
+    dataSource: 'Google News RSS (production) / Simulated articles (sandbox)',
+    implementation: 'news_agent.py — feedparser + Boolean URL encoding. Zero cost, institutional-grade filtering.',
+  })
+})
+
 // ── MAIN PAGE ────────────────────────────────────────────────────────────────
 app.get('/', (c) => {
   return c.html(`<!DOCTYPE html>
@@ -365,6 +432,7 @@ function navItems() {
     { id: 'screener',    icon: 'fas fa-filter',         label: '五因子筛选',          badge: 'AI' },
     { id: 'strategies',  icon: 'fas fa-brain',          label: '策略管理',           badge: '' },
     { id: 'mlfinance',   icon: 'fas fa-robot',          label: 'ML for Finance',     badge: 'NEW' },
+    { id: 'newsagent',   icon: 'fas fa-newspaper',      label: 'News Intelligence',  badge: '4M' },
     { id: 'research',    icon: 'fas fa-flask',          label: '研究论文库',          badge: '4' },
     { id: 'trading',     icon: 'fas fa-exchange-alt',   label: '交易模块',           badge: '' },
     { id: 'backtest',    icon: 'fas fa-history',        label: '回测平台',           badge: '' },

@@ -2215,3 +2215,151 @@ export const dataCenterHealth: DataCenterHealth = {
     ],
   },
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// NEWS AGENT — Data Layer #4 (News & Sentiment Tracker)
+// Mirrors the Python news_agent.py logic in TypeScript for edge runtime
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface NewsArticle {
+  date:     string;
+  time:     string;
+  mandate:  string;
+  title:    string;
+  source:   string;
+  link:     string;
+  sentiment?: 'bullish' | 'bearish' | 'neutral';
+}
+
+export interface NewsMandate {
+  id:          string;
+  label:       string;
+  description: string;
+  color:       string;      // tailwind color stem: 'blue','red','amber','purple'
+  icon:        string;      // FontAwesome class
+  query:       string;      // Boolean search string (Google News RSS)
+  keywords:    string[];    // highlight words
+}
+
+export const NEWS_MANDATES: NewsMandate[] = [
+  {
+    id:          'AI_Capex_Bubble',
+    label:       'AI / Capex Cycle',
+    description: 'Track AI infrastructure spending, GPU supply, hyperscaler capex announcements and potential bubble signals',
+    color:       'blue',
+    icon:        'fas fa-microchip',
+    query:       '"DeepSeek" OR "Nvidia" OR "OpenAI" AND "capex" OR "infrastructure"',
+    keywords:    ['DeepSeek','Nvidia','OpenAI','capex','infrastructure','GPU','hyperscaler','Microsoft','Google','Amazon'],
+  },
+  {
+    id:          'Geopolitics_SupplyChain',
+    label:       'Geopolitics / Trade',
+    description: 'Tariffs, supply chain re-shoring, China-US tensions, semiconductor export controls',
+    color:       'red',
+    icon:        'fas fa-globe',
+    query:       '"Tariff" OR "Trade" AND "China" OR "Germany" OR "Japan"',
+    keywords:    ['Tariff','trade war','export control','TSMC','supply chain','sanctions','NATO','Taiwan','CHIPS Act'],
+  },
+  {
+    id:          'Macro_K_Shape',
+    label:       'Macro / Fed / Rates',
+    description: 'Treasury yields, Fed policy, jobs data, inflation prints and K-shaped recovery dynamics',
+    color:       'amber',
+    icon:        'fas fa-chart-line',
+    query:       '"Treasury yields" OR "job report" AND "Fed" OR "economy"',
+    keywords:    ['Treasury','Fed','CPI','PCE','payrolls','recession','yield curve','FOMC','inflation','rate cut'],
+  },
+  {
+    id:          'Distressed_Credit_RE',
+    label:       'Distressed / Real Estate',
+    description: 'LBO stress, CMBS defaults, office/multifamily distress, credit cycle turns',
+    color:       'purple',
+    icon:        'fas fa-building',
+    query:       '"LBO" OR "real estate" OR "multifamily" AND "default" OR "plunge" OR "tank"',
+    keywords:    ['LBO','default','CMBS','multifamily','office','distressed','covenant','bankruptcy','private credit'],
+  },
+];
+
+// ── Simulated news articles (production: replace with live feedparser RSS calls)
+function _ago(h: number): { date: string; time: string } {
+  const d = new Date(Date.now() - h * 3_600_000);
+  return {
+    date: d.toISOString().slice(0, 10),
+    time: d.toTimeString().slice(0, 8),
+  };
+}
+
+export const simulatedNewsArticles: NewsArticle[] = [
+  // AI_Capex_Bubble
+  { ..._ago(1),  mandate:'AI_Capex_Bubble',       title:'Nvidia Q1 Data Center Revenue Surges 427% YoY; CEO Says "Next Industrial Revolution Has Begun"',              source:'Wall Street Journal',  link:'#', sentiment:'bullish' },
+  { ..._ago(3),  mandate:'AI_Capex_Bubble',       title:'Microsoft Azure Capex Guidance Raised to $80B — Analysts Split on AI Monetization Timeline',                 source:'Bloomberg',            link:'#', sentiment:'neutral' },
+  { ..._ago(5),  mandate:'AI_Capex_Bubble',       title:'DeepSeek R2 Leak Claims 10× Efficiency Gain; Threatens Hyperscaler GPU Demand Thesis',                       source:'Financial Times',      link:'#', sentiment:'bearish' },
+  { ..._ago(8),  mandate:'AI_Capex_Bubble',       title:'OpenAI Stargate Infrastructure Spend: $500B Over 4 Years — Where Does the Money Go?',                        source:'CNBC',                 link:'#', sentiment:'neutral' },
+  { ..._ago(12), mandate:'AI_Capex_Bubble',       title:'Goldman Sachs: AI Capex Bubble Risk "Elevated" — ROI Must Materialize by 2026 or Multiple Compression Likely', source:'Goldman Sachs Research',link:'#', sentiment:'bearish' },
+  { ..._ago(18), mandate:'AI_Capex_Bubble',       title:'AMD MI300X Server Shipments Accelerate; Provides Alternative to Nvidia in Enterprise AI Workloads',           source:'Reuters',              link:'#', sentiment:'bullish' },
+
+  // Geopolitics
+  { ..._ago(2),  mandate:'Geopolitics_SupplyChain', title:'US Imposes 145% Tariff on Chinese EV Batteries; EU Weighs Retaliatory Measures on American Ag Exports',    source:'Reuters',              link:'#', sentiment:'bearish' },
+  { ..._ago(4),  mandate:'Geopolitics_SupplyChain', title:'TSMC Arizona Fab Yields Improve to 95%; Apple to Source 30% of A-Series Chips from US Facility by 2027',   source:'Bloomberg',            link:'#', sentiment:'bullish' },
+  { ..._ago(7),  mandate:'Geopolitics_SupplyChain', title:'Japan Semiconductor Export Restrictions Tighten; Dutch ASML Faces Expanded China Sales Ban',                source:'Financial Times',      link:'#', sentiment:'bearish' },
+  { ..._ago(10), mandate:'Geopolitics_SupplyChain', title:'China Retaliates with Rare Earth Export Controls — Cobalt, Gallium, Germanium Shipments Halted',            source:'Wall Street Journal',  link:'#', sentiment:'bearish' },
+  { ..._ago(14), mandate:'Geopolitics_SupplyChain', title:'India as Supply Chain Alternative: Apple Shifts 25% of iPhone Assembly; Samsung Follows',                   source:'Economic Times',       link:'#', sentiment:'bullish' },
+
+  // Macro
+  { ..._ago(2),  mandate:'Macro_K_Shape',          title:'US CPI +3.2% YoY — Core Services Sticky at 4.1%; Fed Holds Rates Unchanged at FOMC',                       source:'Bloomberg',            link:'#', sentiment:'bearish' },
+  { ..._ago(5),  mandate:'Macro_K_Shape',          title:'Nonfarm Payrolls +275K Beat; Unemployment Ticks Up to 3.9% — Goldilocks or Stagflation Warning?',           source:'Wall Street Journal',  link:'#', sentiment:'neutral' },
+  { ..._ago(9),  mandate:'Macro_K_Shape',          title:'10-Year Treasury Yield Hits 4.6%; Real Yield at 2.3% — Pressure Mounts on Long-Duration Tech Multiples',    source:'CNBC',                 link:'#', sentiment:'bearish' },
+  { ..._ago(13), mandate:'Macro_K_Shape',          title:'Consumer Confidence Diverges Sharply: Top-Quintile Spending Up 12%, Bottom-Quintile Down 8% — K-Shape Widens', source:'Conference Board',   link:'#', sentiment:'neutral' },
+  { ..._ago(20), mandate:'Macro_K_Shape',          title:'Fed Minutes: "Higher for Longer" Consensus Solidifies; March Rate Cut Off the Table Entirely',               source:'Federal Reserve',      link:'#', sentiment:'bearish' },
+
+  // Distressed
+  { ..._ago(3),  mandate:'Distressed_Credit_RE',   title:'Brookfield Defaults on $1.1B Office CMBS in Los Angeles; Deed-in-Lieu Transferred to Servicer',             source:'Bloomberg',            link:'#', sentiment:'bearish' },
+  { ..._ago(6),  mandate:'Distressed_Credit_RE',   title:"Private Credit Stress Test: 14% of Middle-Market LBOs Covenant Breach Expected in Next 6 Months — Moody's", source:"Moody's Analytics",   link:'#', sentiment:'bearish' },
+  { ..._ago(11), mandate:'Distressed_Credit_RE',   title:'Multifamily Cap Rate Expansion Continues: Sunbelt NOI Compression 18% YoY as Oversupply Peaks',             source:'Green Street',         link:'#', sentiment:'bearish' },
+  { ..._ago(15), mandate:'Distressed_Credit_RE',   title:'Apollo Raises $5B Distressed Real Estate Fund; Blackstone Actively Buying Discounted CMBS at 60c on Dollar', source:'Reuters',            link:'#', sentiment:'bullish' },
+  { ..._ago(22), mandate:'Distressed_Credit_RE',   title:'Bed Bath & Beyond Bankruptcy Update: Liquidation Auction Fetches $875M; PE Firms Eye Real Estate Leases',   source:'Financial Times',      link:'#', sentiment:'neutral' },
+];
+
+// ── Generate AI Morning Brief (simulated — production: call Claude/GPT API)
+export interface MorningBrief {
+  generatedAt: string;
+  model:       string;
+  headlines:   { mandate: string; summary: string; action: string; urgency: 'high'|'medium'|'low' }[];
+  marketCall:  string;
+}
+
+export const morningBrief: MorningBrief = {
+  generatedAt: new Date().toISOString(),
+  model: 'Claude 3.5 Sonnet (simulated)',
+  headlines: [
+    {
+      mandate:  'AI_Capex_Bubble',
+      summary:  'DeepSeek efficiency claims and Goldman bubble warning create meaningful near-term risk to the hyperscaler capex thesis. However, MSFT/AMZN raised capex guidance — the market is still pricing 2026 AI monetization. Key watch: Q1 earnings call language on ROI timelines.',
+      action:   'Trim NVDA on strength above $950; maintain AMZN/GOOGL core positions. Watch SMCI as leading indicator.',
+      urgency:  'high',
+    },
+    {
+      mandate:  'Geopolitics_SupplyChain',
+      summary:  'Rare earth export controls + 145% EV battery tariffs represent escalation beyond prior trade war playbook. China is now weaponizing critical minerals. TSMC Arizona yield improvement is the single most important supply chain hedging data point this month.',
+      action:   'Long TSMC ADR, short pure-play China foundry exposure. Overweight US-domiciled semiconductor equipment.',
+      urgency:  'high',
+    },
+    {
+      mandate:  'Macro_K_Shape',
+      summary:  'Sticky core services CPI + Fed on hold = rates higher for longer is the base case. 10Y at 4.6% begins to seriously compete with equity earnings yield (ERP near zero). Lower-quintile consumer spending contraction is a leading indicator of eventual top-line revenue misses.',
+      action:   'Reduce duration in equity portfolio; shift weight to high-FCF quality names. Short consumer discretionary targeting lower-income demographics.',
+      urgency:  'medium',
+    },
+  ],
+  marketCall: 'NET BEARISH TILT: Combination of ERP compression (0.07%), Fed on hold, and geopolitical tariff escalation creates asymmetric downside. Recommend: +5% cash, reduce momentum factor exposure, increase quality/FCF factor weight. Key risk-off signal would be HY OAS crossing 400 bps — currently 312.',
+};
+
+export const newsAgentHealth = {
+  lastRun:       new Date(Date.now() - 3_600_000).toISOString(),
+  nextRun:       new Date(Date.now() + 21_600_000).toISOString(),
+  totalArticles: simulatedNewsArticles.length,
+  mandateCount:  NEWS_MANDATES.length,
+  runFrequency:  'Every 6 hours (06:00, 12:00, 18:00, 00:00 EST)',
+  productionNote: 'Production: deploy news_agent.py as Cloudflare Worker Cron Trigger. RSS fetch → D1 storage → /api/news/articles endpoint.',
+  pythonScript:  'news_agent.py — Data Layer #4. Uses Google News RSS + Boolean operators. Install: pip install feedparser pandas',
+};
