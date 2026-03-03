@@ -2278,6 +2278,15 @@ export const NEWS_MANDATES: NewsMandate[] = [
     query:       '"LBO" OR "real estate" OR "multifamily" AND "default" OR "plunge" OR "tank"',
     keywords:    ['LBO','default','CMBS','multifamily','office','distressed','covenant','bankruptcy','private credit'],
   },
+  {
+    id:          'Commodities_Gold_Oil',
+    label:       '大宗商品 / 黄金石油',
+    description: 'Gold price drivers (real rates, USD, safe-haven demand), crude oil supply/demand (OPEC+, geopolitical risk premium, inventory draws)',
+    color:       'yellow',
+    icon:        'fas fa-coins',
+    query:       '"Gold" OR "crude oil" OR "OPEC" AND "price" OR "supply" OR "Fed"',
+    keywords:    ['Gold','GLD','XAU','crude oil','WTI','Brent','OPEC','OPEC+','safe haven','real rates','USD','energy','SPR','inventory'],
+  },
 ];
 
 // ── Simulated news articles (production: replace with live feedparser RSS calls)
@@ -2318,6 +2327,14 @@ export const simulatedNewsArticles: NewsArticle[] = [
   { ..._ago(11), mandate:'Distressed_Credit_RE',   title:'Multifamily Cap Rate Expansion Continues: Sunbelt NOI Compression 18% YoY as Oversupply Peaks',             source:'Green Street',         link:'#', sentiment:'bearish' },
   { ..._ago(15), mandate:'Distressed_Credit_RE',   title:'Apollo Raises $5B Distressed Real Estate Fund; Blackstone Actively Buying Discounted CMBS at 60c on Dollar', source:'Reuters',            link:'#', sentiment:'bullish' },
   { ..._ago(22), mandate:'Distressed_Credit_RE',   title:'Bed Bath & Beyond Bankruptcy Update: Liquidation Auction Fetches $875M; PE Firms Eye Real Estate Leases',   source:'Financial Times',      link:'#', sentiment:'neutral' },
+
+  // Commodities_Gold_Oil
+  { ..._ago(1),  mandate:'Commodities_Gold_Oil',    title:'Gold Hits $2,450/oz — Record High as Real Yields Compress; Central Bank Buying Accelerates Amid Dollar Weakness', source:'Bloomberg',           link:'#', sentiment:'bullish' },
+  { ..._ago(4),  mandate:'Commodities_Gold_Oil',    title:'OPEC+ Extends 2.2M bpd Voluntary Cuts Through Q3 2026; WTI Crude Rallies 3.8% to $84/bbl',                       source:'Reuters',              link:'#', sentiment:'bullish' },
+  { ..._ago(7),  mandate:'Commodities_Gold_Oil',    title:'US SPR Drawdown Reaches Historic Low — Energy Dept. Signals No Refill Plans Before 2027 Election Cycle',          source:'Wall Street Journal',  link:'#', sentiment:'bearish' },
+  { ..._ago(11), mandate:'Commodities_Gold_Oil',    title:'Goldman Sachs Raises 12-Month Gold Target to $2,700 — Cites Dedollarization Thesis and EM Central Bank Demand',   source:'Goldman Sachs Research',link:'#', sentiment:'bullish' },
+  { ..._ago(16), mandate:'Commodities_Gold_Oil',    title:'EIA Inventory Build Surprises: +4.2M bbls vs -1.5M Expected; WTI Sells Off on Demand Concern',                   source:'EIA / Bloomberg',      link:'#', sentiment:'bearish' },
+  { ..._ago(24), mandate:'Commodities_Gold_Oil',    title:'Iran Strait of Hormuz Threat Pushes Brent Risk Premium to $8/bbl; Tanker Insurance Rates Surge',                  source:'Financial Times',      link:'#', sentiment:'bearish' },
 ];
 
 // ── Generate AI Morning Brief (simulated — production: call Claude/GPT API)
@@ -2348,6 +2365,12 @@ export const morningBrief: MorningBrief = {
       mandate:  'Macro_K_Shape',
       summary:  'Sticky core services CPI + Fed on hold = rates higher for longer is the base case. 10Y at 4.6% begins to seriously compete with equity earnings yield (ERP near zero). Lower-quintile consumer spending contraction is a leading indicator of eventual top-line revenue misses.',
       action:   'Reduce duration in equity portfolio; shift weight to high-FCF quality names. Short consumer discretionary targeting lower-income demographics.',
+      urgency:  'medium',
+    },
+    {
+      mandate:  'Commodities_Gold_Oil',
+      summary:  'Gold breaking to new ATH on real yield compression + EM central bank accumulation — not merely a safe-haven trade. Oil supported by OPEC+ discipline; geopolitical risk premium from Iran strait threat adds $8/bbl. Watch EIA weekly inventory for demand inflection.',
+      action:   'Long GLD via ETF as ERP hedge (negative correlation to equity sell-offs). Long XLE energy sector for oil exposure with FCF protection. Set stop below WTI $78 support.',
       urgency:  'medium',
     },
   ],

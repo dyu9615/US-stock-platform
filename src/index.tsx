@@ -364,51 +364,51 @@ app.get('/', (c) => {
 <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
 <link rel="stylesheet" href="/static/styles.css">
 </head>
-<body class="bg-[#0a0e1a] text-gray-200 font-sans">
+<body style="background:#0d0d0d;color:#e8e8e8" class="font-sans">
 
 <!-- SIDEBAR -->
-<div id="sidebar" class="fixed left-0 top-0 h-full w-60 bg-[#0d1221] border-r border-[#1e2d4a] z-50 flex flex-col">
-  <div class="px-5 py-4 border-b border-[#1e2d4a]">
+<div id="sidebar" class="fixed left-0 top-0 h-full w-60 z-50 flex flex-col" style="background:#0d0d0d;border-right:1px solid #2d2d3d">
+  <div class="px-5 py-4" style="border-bottom:1px solid #2d2d3d">
     <div class="flex items-center gap-3">
-      <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-cyan-400 flex items-center justify-center">
+      <div class="w-8 h-8 rounded-lg flex items-center justify-center" style="background:linear-gradient(135deg,#448aff,#00b0ff)">
         <i class="fas fa-chart-line text-white text-sm"></i>
       </div>
       <div>
         <div class="text-white font-bold text-sm tracking-wide">QuantAlpha</div>
-        <div class="text-[10px] text-cyan-400">US Equity · Quant Platform</div>
+        <div class="text-[10px]" style="color:#00b0ff">机构量化平台</div>
       </div>
     </div>
   </div>
   <nav class="flex-1 py-4 overflow-y-auto">
     <div class="px-3 mb-2">
-      <p class="text-[10px] text-gray-500 uppercase tracking-widest px-2 mb-1">核心模块</p>
+      <p class="text-[10px] uppercase tracking-widest px-2 mb-1" style="color:#555568">核心模块</p>
       ${navItems().map(n => `
       <button onclick="navigate('${n.id}')" id="nav-${n.id}"
-        class="nav-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg mb-0.5 text-sm transition-all text-gray-400 hover:text-white hover:bg-[#1a2540]">
+        class="nav-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg mb-0.5 text-sm transition-all" style="color:#8a8a9a">
         <i class="${n.icon} w-4 text-center"></i>
         <span>${n.label}</span>
-        ${n.badge ? `<span class="ml-auto text-[10px] bg-cyan-500/20 text-cyan-400 px-1.5 py-0.5 rounded-full">${n.badge}</span>` : ''}
+        ${n.badge ? `<span class="ml-auto text-[10px] px-1.5 py-0.5 rounded-full" style="background:rgba(0,176,255,0.15);color:#00b0ff">${n.badge}</span>` : ''}
       </button>`).join('')}
     </div>
   </nav>
-  <div class="px-5 py-3 border-t border-[#1e2d4a]">
+  <div class="px-5 py-3" style="border-top:1px solid #2d2d3d">
     <div class="flex items-center gap-2">
-      <div class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></div>
-      <span class="text-[11px] text-gray-400">市场开盘中</span>
-      <span id="clock" class="ml-auto text-[11px] text-gray-500"></span>
+      <div class="w-2 h-2 rounded-full animate-pulse" style="background:#00c853"></div>
+      <span class="text-[11px]" style="color:#8a8a9a">市场开盘中</span>
+      <span id="clock" class="ml-auto text-[11px]" style="color:#555568"></span>
     </div>
-    <div class="mt-2 text-[10px] text-gray-600">Data: Bloomberg → yfinance → EDGAR</div>
+    <div class="mt-2 text-[10px]" style="color:#3d3d50">Data: Bloomberg → yfinance → EDGAR</div>
   </div>
 </div>
 
 <!-- MAIN CONTENT -->
 <div class="ml-60 min-h-screen">
   <!-- TOP BAR -->
-  <div class="sticky top-0 z-40 bg-[#0a0e1a]/95 backdrop-blur border-b border-[#1e2d4a] px-6 py-3 flex items-center gap-4">
-    <div id="page-title" class="text-white font-semibold text-lg">总控台 Dashboard</div>
+  <div class="sticky top-0 z-40 backdrop-blur px-6 py-3 flex items-center gap-4" style="background:rgba(13,13,13,0.95);border-bottom:1px solid #2d2d3d">
+    <div id="page-title" class="text-white font-semibold text-lg">总控台 — 机构市场监控</div>
     <div class="ml-auto flex items-center gap-3">
       <div id="market-ticker" class="flex gap-4 text-xs"></div>
-      <button onclick="refreshAll()" class="px-3 py-1.5 bg-blue-600/20 border border-blue-500/30 text-blue-400 rounded text-xs hover:bg-blue-600/30 transition">
+      <button onclick="refreshAll()" class="px-3 py-1.5 rounded text-xs transition" style="background:rgba(68,138,255,0.1);border:1px solid rgba(68,138,255,0.3);color:#448aff">
         <i class="fas fa-sync-alt mr-1"></i>刷新
       </button>
     </div>
@@ -416,7 +416,7 @@ app.get('/', (c) => {
 
   <!-- PAGE CONTENT -->
   <div id="page-content" class="p-6">
-    <div class="text-gray-400 text-center py-20">加载中...</div>
+    <div class="text-center py-20" style="color:#8a8a9a">加载中...</div>
   </div>
 </div>
 
@@ -427,16 +427,16 @@ app.get('/', (c) => {
 
 function navItems() {
   return [
-    { id: 'dashboard',   icon: 'fas fa-th-large',      label: '总控台 Dashboard',   badge: '' },
-    { id: 'datacenter',  icon: 'fas fa-database',       label: '数据中心',           badge: 'US' },
-    { id: 'screener',    icon: 'fas fa-filter',         label: '五因子筛选',          badge: 'AI' },
-    { id: 'strategies',  icon: 'fas fa-brain',          label: '策略管理',           badge: '' },
-    { id: 'mlfinance',   icon: 'fas fa-robot',          label: 'ML for Finance',     badge: 'NEW' },
-    { id: 'newsagent',   icon: 'fas fa-newspaper',      label: 'News Intelligence',  badge: '4M' },
-    { id: 'research',    icon: 'fas fa-flask',          label: '研究论文库',          badge: '4' },
-    { id: 'trading',     icon: 'fas fa-exchange-alt',   label: '交易模块',           badge: '' },
-    { id: 'backtest',    icon: 'fas fa-history',        label: '回测平台',           badge: '' },
-    { id: 'performance', icon: 'fas fa-chart-bar',      label: '业绩分析',           badge: '' },
+    { id: 'dashboard',   icon: 'fas fa-th-large',      label: '总控台',     badge: '' },
+    { id: 'datacenter',  icon: 'fas fa-database',       label: '数据中心',   badge: 'US' },
+    { id: 'screener',    icon: 'fas fa-filter',         label: '五因子筛选', badge: 'AI' },
+    { id: 'strategies',  icon: 'fas fa-brain',          label: '策略管理',   badge: '' },
+    { id: 'mlfinance',   icon: 'fas fa-robot',          label: '机器学习',   badge: 'NEW' },
+    { id: 'newsagent',   icon: 'fas fa-newspaper',      label: '新闻情报',   badge: '6M' },
+    { id: 'research',    icon: 'fas fa-flask',          label: '研究论文库', badge: '4' },
+    { id: 'trading',     icon: 'fas fa-exchange-alt',   label: '交易模块',   badge: '' },
+    { id: 'backtest',    icon: 'fas fa-history',        label: '回测平台',   badge: '' },
+    { id: 'performance', icon: 'fas fa-chart-bar',      label: '业绩分析',   badge: '' },
   ]
 }
 

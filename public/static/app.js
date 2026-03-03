@@ -17,16 +17,16 @@ setInterval(() => {
 
 // ── NAV ────────────────────────────────────────────────────────────────────
 const PAGE_TITLES = {
-  dashboard:   '总控台 Dashboard',
-  datacenter:  '数据中心 Data Center',
-  screener:    '五因子筛选 Stock Screener',
-  strategies:  '策略管理 Strategy Manager',
-  mlfinance:   'ML for Finance — 机器学习信号引擎',
-  newsagent:   'News Intelligence — 机构新闻监控',
-  research:    '研究论文库 Research Library',
-  trading:     '交易模块 Trade Execution',
-  backtest:    '回测平台 Backtesting',
-  performance: '业绩分析 Performance Analytics',
+  dashboard:   '总控台 — 机构市场监控',
+  datacenter:  '数据中心 — 机构底层数据',
+  screener:    '五因子筛选 — 量化选股',
+  strategies:  '策略管理 — 策略仓库',
+  mlfinance:   '机器学习 — 信号引擎',
+  newsagent:   '新闻情报 — 机构宏观监控',
+  research:    '研究论文库 — 因子文献',
+  trading:     '交易模块 — 持仓日志',
+  backtest:    '回测平台 — 历史验证',
+  performance: '业绩分析 — 归因报告',
 }
 
 function navigate(page) {
@@ -120,28 +120,33 @@ async function renderDashboard(el) {
     const macH = macroHistRes.data.data || [];
 
     // ── colour helpers ──────────────────────────────────────────────────
-    const sigColor = s => s==='panic'||s==='distress'||s==='overvalued' ? '#ef4444'
-                        : s==='warning'||s==='elevated'                 ? '#f59e0b'
-                        : s==='undervalued'||s==='attractive'           ? '#10b981' : '#6b7280';
+    const sigColor = s => s==='panic'||s==='distress'||s==='overvalued' ? YF.red
+                        : s==='warning'||s==='elevated'                 ? YF.amber
+                        : s==='undervalued'||s==='attractive'           ? YF.green : YF.muted;
     const sigBorder= s => s==='panic'||s==='distress'||s==='overvalued' ? 'border-red-500/50'
-                        : s==='warning'||s==='elevated'                 ? 'border-yellow-500/50'
-                        : s==='undervalued'||s==='attractive'           ? 'border-emerald-500/50'
-                        : 'border-gray-600/40';
+                        : s==='warning'||s==='elevated'                 ? 'border-yellow-500/40'
+                        : s==='undervalued'||s==='attractive'           ? 'border-green-500/40'
+                        : 'border-[#2d2d3d]';
     const pill = (s,l) => {
-      const bg = {panic:'bg-red-500',distress:'bg-red-500',overvalued:'bg-red-500',
-                  warning:'bg-yellow-500',elevated:'bg-yellow-500',
-                  undervalued:'bg-emerald-500',attractive:'bg-emerald-500',
-                  normal:'bg-gray-600',neutral:'bg-gray-600'}[s]||'bg-gray-600';
-      return `<span class="${bg} text-white text-[10px] font-bold px-2 py-0.5 rounded-full tracking-wide uppercase">${l||s}</span>`;
+      const map = {
+        panic:'#ff1744',distress:'#ff1744',overvalued:'#ff1744',
+        warning:'#ffab00',elevated:'#ffab00',
+        undervalued:'#00c853',attractive:'#00c853',
+        normal:'#555568',neutral:'#555568'
+      };
+      const c = map[s]||'#555568';
+      return `<span style="background:${c}22;color:${c};border:1px solid ${c}55" class="text-[10px] font-bold px-2 py-0.5 rounded-full tracking-wide uppercase">${l||s}</span>`;
     };
 
-    const panicColor = m.panicScore>=60?'#ef4444':m.panicScore>=30?'#f59e0b':'#10b981';
+    // ── Yahoo Finance colour tokens ────────────────────────────────────
+    const YF = { green:'#00c853', red:'#ff1744', amber:'#ffab00', blue:'#448aff', cyan:'#00b0ff', muted:'#8a8a9a' };
+    const panicColor = m.panicScore>=60?YF.red:m.panicScore>=30?YF.amber:YF.green;
     const vixTSSig   = m.vixContango ? 'normal' : 'panic';
     const hyLabel    = m.hyOas>800?'Distress':m.hyOas>500?'Elevated':m.hyOas>400?'Caution':'Tight';
-    const hyColor    = m.hyOas>800?'#ef4444':m.hyOas>500?'#f59e0b':'#10b981';
-    const brdColor   = m.pctAbove200ma<15?'#ef4444':m.pctAbove200ma<30?'#f59e0b':'#10b981';
-    const pcColor    = m.putCallRatio>1.5?'#ef4444':m.putCallRatio>1.1?'#f59e0b':'#10b981';
-    const erpColor   = e.erp<1?'#ef4444':e.erp<2.5?'#f59e0b':'#10b981';
+    const hyColor    = m.hyOas>800?YF.red:m.hyOas>500?YF.amber:'#00c853';
+    const brdColor   = m.pctAbove200ma<15?YF.red:m.pctAbove200ma<30?YF.amber:'#00c853';
+    const pcColor    = m.putCallRatio>1.5?YF.red:m.putCallRatio>1.1?YF.amber:'#00c853';
+    const erpColor   = e.erp<1?YF.red:e.erp<2.5?YF.amber:'#00c853';
     const erpSig     = e.erp<1?'overvalued':e.erp<2.5?'warning':'normal';
 
     // ── sub-module toggle ───────────────────────────────────────────────
@@ -168,17 +173,17 @@ async function renderDashboard(el) {
 <div class="mb-5 flex items-center justify-between flex-wrap gap-3">
   <div>
     <h2 class="text-xl font-bold text-white flex items-center gap-2">
-      <i class="fas fa-satellite-dish text-blue-400"></i>
-      Institutional Market Monitor
-      <span class="text-xs text-gray-500 font-normal ml-1">${m.date}</span>
+      <i class="fas fa-satellite-dish" style="color:var(--cyan)"></i>
+      总控台 · 机构市场监控
+      <span class="text-xs font-normal ml-1" style="color:var(--yf-muted)">${m.date}</span>
     </h2>
-    <p class="text-gray-500 text-xs mt-0.5">Click any card to expand detail sub-module</p>
+    <p style="color:var(--yf-muted)" class="text-xs mt-0.5">点击任意卡片展开详情 · 图表链接至数据源 · Click card to expand · Charts link to source</p>
   </div>
   <!-- panic gauge -->
-  <div class="flex items-center gap-3 bg-gray-800/80 border border-gray-700 rounded-xl px-4 py-2">
+  <div class="flex items-center gap-3 rounded-xl px-4 py-2" style="background:#1a1a2e;border:1px solid #2d2d3d">
     <div class="relative w-12 h-12">
       <svg viewBox="0 0 36 36" class="w-12 h-12 -rotate-90">
-        <circle cx="18" cy="18" r="15.9155" fill="none" stroke="#374151" stroke-width="4"/>
+        <circle cx="18" cy="18" r="15.9155" fill="none" stroke="#2d2d3d" stroke-width="4"/>
         <circle cx="18" cy="18" r="15.9155" fill="none" stroke="${panicColor}" stroke-width="4"
           stroke-dasharray="${m.panicScore} ${100-m.panicScore}" stroke-linecap="round"/>
       </svg>
@@ -187,7 +192,7 @@ async function renderDashboard(el) {
       </div>
     </div>
     <div>
-      <div class="text-xs text-gray-500 uppercase tracking-wide">Panic Score</div>
+      <div class="text-xs uppercase tracking-wide" style="color:var(--yf-muted)">恐慌指数</div>
       <div class="text-sm font-bold" style="color:${panicColor}">${m.panicLabel}</div>
     </div>
   </div>
@@ -201,10 +206,9 @@ async function renderDashboard(el) {
 <div class="grid grid-cols-2 xl:grid-cols-4 gap-3 mb-1">
 
   <!-- VIX card -->
-  <div class="cursor-pointer bg-gray-800/70 border ${sigBorder(vixTSSig)} rounded-xl p-3 hover:bg-gray-700/60 transition-colors"
-       onclick="window._dashToggle('sub-vix')">
+  <div class="cursor-pointer rounded-xl p-3 transition-colors" style="background:#1a1a2e;border:1px solid #2d2d3d" onclick="window._dashToggle('sub-vix')">
     <div class="flex items-start justify-between mb-2">
-      <span class="text-[10px] text-gray-500 uppercase font-semibold leading-tight">VIX Term<br>Structure</span>
+      <span class="text-[10px] uppercase font-semibold leading-tight" style="color:var(--yf-muted)">VIX 期限结构<br>Term Structure</span>
       ${pill(vixTSSig)}
     </div>
     <div class="flex items-baseline gap-1">
@@ -212,53 +216,50 @@ async function renderDashboard(el) {
       <span class="text-xs text-gray-500">spot</span>
     </div>
     <div class="text-xs mt-1 ${m.vixContango?'text-emerald-400':'text-red-400'} font-medium">
-      ${m.vixContango ? '↗ Contango' : '↘ Backwardation ⚠'}
+      ${m.vixContango ? '↗ Contango — 市场平静' : '↘ Backwardation ⚠ 恐慌信号'}
     </div>
-    <div class="text-[10px] text-gray-600 mt-1">VX1 ${m.vx1.toFixed(1)} · VX3 ${m.vx3.toFixed(1)}</div>
-    <div class="text-[10px] text-gray-600 mt-0.5">tap to expand ↓</div>
+    <div class="text-[10px] mt-1" style="color:var(--yf-dim)">VX1 ${m.vx1.toFixed(1)} · VX3 ${m.vx3.toFixed(1)}</div>
+    <div class="flex items-center gap-2 mt-1.5"><a href="https://finance.yahoo.com/quote/%5EVIX/" target="_blank" class="yf-link"><i class="fas fa-external-link-alt text-[9px]"></i>^VIX</a><span class="text-[9px]" style="color:var(--yf-dim)">点击展开 ↓</span></div>
   </div>
 
   <!-- HY OAS card -->
-  <div class="cursor-pointer bg-gray-800/70 border ${sigBorder(m.hyOasSignal)} rounded-xl p-3 hover:bg-gray-700/60 transition-colors"
-       onclick="window._dashToggle('sub-hy')">
+  <div class="cursor-pointer rounded-xl p-3 transition-colors" style="background:#1a1a2e;border:1px solid #2d2d3d" onclick="window._dashToggle('sub-hy')">
     <div class="flex items-start justify-between mb-2">
-      <span class="text-[10px] text-gray-500 uppercase font-semibold leading-tight">HY Credit<br>Spread OAS</span>
+      <span class="text-[10px] uppercase font-semibold leading-tight" style="color:var(--yf-muted)">HY信用利差<br>HY OAS</span>
       ${pill(m.hyOasSignal, hyLabel)}
     </div>
     <div class="flex items-baseline gap-1">
       <span class="text-2xl font-bold" style="color:${hyColor}">${m.hyOas}</span>
       <span class="text-xs text-gray-500">bps</span>
     </div>
-    <div class="h-1.5 bg-gray-700 rounded-full mt-2 mb-1">
+    <div class="h-1.5 rounded-full mt-2 mb-1" style="background:#2d2d3d">
       <div class="h-1.5 rounded-full" style="width:${Math.min(m.hyOas/12,100)}%;background:${hyColor}"></div>
     </div>
-    <div class="text-[10px] text-gray-600">FRED BAMLH0A0HYM2 · distress >800</div>
-    <div class="text-[10px] text-gray-600 mt-0.5">tap to expand ↓</div>
+    <div class="text-[10px] mt-1" style="color:var(--yf-dim)">FRED BAMLH0A0HYM2 · 崩溃 >800</div>
+    <div class="flex items-center gap-2 mt-1"><a href="https://fred.stlouisfed.org/series/BAMLH0A0HYM2" target="_blank" class="yf-link"><i class="fas fa-external-link-alt text-[9px]"></i>FRED</a><span class="text-[9px]" style="color:var(--yf-dim)">点击展开 ↓</span></div>
   </div>
 
   <!-- Breadth card -->
-  <div class="cursor-pointer bg-gray-800/70 border ${sigBorder(m.breadthSignal)} rounded-xl p-3 hover:bg-gray-700/60 transition-colors"
-       onclick="window._dashToggle('sub-breadth')">
+  <div class="cursor-pointer rounded-xl p-3 transition-colors" style="background:#1a1a2e;border:1px solid #2d2d3d" onclick="window._dashToggle('sub-breadth')">
     <div class="flex items-start justify-between mb-2">
-      <span class="text-[10px] text-gray-500 uppercase font-semibold leading-tight">Market<br>Breadth</span>
+      <span class="text-[10px] uppercase font-semibold leading-tight" style="color:var(--yf-muted)">市场宽度<br>Breadth</span>
       ${pill(m.breadthSignal)}
     </div>
     <div class="flex items-baseline gap-1">
       <span class="text-2xl font-bold" style="color:${brdColor}">${m.pctAbove200ma.toFixed(1)}</span>
       <span class="text-xs text-gray-500">% >200DMA</span>
     </div>
-    <div class="h-1.5 bg-gray-700 rounded-full mt-2 mb-1">
+    <div class="h-1.5 rounded-full mt-2 mb-1" style="background:#2d2d3d">
       <div class="h-1.5 rounded-full" style="width:${m.pctAbove200ma}%;background:${brdColor}"></div>
     </div>
-    <div class="text-[10px] text-gray-600">S5TH200X · panic <15%</div>
-    <div class="text-[10px] text-gray-600 mt-0.5">tap to expand ↓</div>
+    <div class="text-[10px] mt-1" style="color:var(--yf-dim)">S5TH200X · 恐慌 <15%</div>
+    <div class="flex items-center gap-2 mt-1"><a href="https://stockcharts.com/h-sc/ui?s=%24SPXA200R" target="_blank" class="yf-link"><i class="fas fa-external-link-alt text-[9px]"></i>Chart</a><span class="text-[9px]" style="color:var(--yf-dim)">点击展开 ↓</span></div>
   </div>
 
   <!-- Put/Call card -->
-  <div class="cursor-pointer bg-gray-800/70 border ${sigBorder(m.putCallSignal)} rounded-xl p-3 hover:bg-gray-700/60 transition-colors"
-       onclick="window._dashToggle('sub-pc')">
+  <div class="cursor-pointer rounded-xl p-3 transition-colors" style="background:#1a1a2e;border:1px solid #2d2d3d" onclick="window._dashToggle('sub-pc')">
     <div class="flex items-start justify-between mb-2">
-      <span class="text-[10px] text-gray-500 uppercase font-semibold leading-tight">CBOE<br>Put/Call</span>
+      <span class="text-[10px] uppercase font-semibold leading-tight" style="color:var(--yf-muted)">CBOE期权<br>Put/Call</span>
       ${pill(m.putCallSignal)}
     </div>
     <div class="flex items-baseline gap-1">
@@ -266,11 +267,11 @@ async function renderDashboard(el) {
       <span class="text-xs text-gray-500">×</span>
     </div>
     <div class="grid grid-cols-3 gap-0.5 mt-2 text-[10px] text-center">
-      <div class="rounded py-0.5 ${m.putCallRatio<0.8?'bg-emerald-700 text-white':'bg-gray-700 text-gray-500'}">Greed<br>&lt;0.8</div>
-      <div class="rounded py-0.5 ${m.putCallRatio>=0.8&&m.putCallRatio<1.1?'bg-gray-500 text-white':'bg-gray-700 text-gray-500'}">Neutral<br>0.8-1.1</div>
-      <div class="rounded py-0.5 ${m.putCallRatio>=1.1?'bg-red-700 text-white':'bg-gray-700 text-gray-500'}">Fear<br>&gt;1.1</div>
+      <div class="rounded py-0.5" style="${m.putCallRatio<0.8?'background:rgba(0,200,83,0.2);color:#00c853':'background:#2d2d3d;color:#555568'}">贪婪 &lt;0.8</div>
+      <div class="rounded py-0.5" style="${m.putCallRatio>=0.8&&m.putCallRatio<1.1?'background:#3d3d50;color:#e8e8e8':'background:#2d2d3d;color:#555568'}">0.8–1.1</div>
+      <div class="rounded py-0.5" style="${m.putCallRatio>=1.1?'background:rgba(255,23,68,0.2);color:#ff5370':'background:#2d2d3d;color:#555568'}">恐慌 &gt;1.1</div>
     </div>
-    <div class="text-[10px] text-gray-600 mt-1">tap to expand ↓</div>
+    <div class="flex items-center gap-2 mt-1.5"><a href="https://www.cboe.com/us/options/market_statistics/daily/" target="_blank" class="yf-link"><i class="fas fa-external-link-alt text-[9px]"></i>CBOE</a><span class="text-[9px]" style="color:var(--yf-dim)">点击展开 ↓</span></div>
   </div>
 </div>
 
@@ -363,31 +364,29 @@ async function renderDashboard(el) {
 
 <!-- ── SECTION B: VALUATION ──────────────────────────────────────────── -->
 <div class="mb-2 mt-4 flex items-center gap-2">
-  <div class="w-0.5 h-4 bg-yellow-500 rounded"></div>
-  <span class="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Valuation</span>
+  <div class="w-0.5 h-4 rounded" style="background:var(--amber)"></div>
+  <span class="text-[11px] font-bold uppercase tracking-widest" style="color:var(--yf-muted)">绝对估值 · Valuation</span>
 </div>
 <div class="grid grid-cols-2 xl:grid-cols-4 gap-3 mb-1">
 
   <!-- ERP card -->
-  <div class="cursor-pointer bg-gray-800/70 border ${sigBorder(erpSig)} rounded-xl p-3 hover:bg-gray-700/60 transition-colors"
-       onclick="window._dashToggle('sub-erp')">
+  <div class="cursor-pointer rounded-xl p-3 transition-colors" style="background:#1a1a2e;border:1px solid #2d2d3d" onclick="window._dashToggle('sub-erp')">
     <div class="flex items-start justify-between mb-2">
-      <span class="text-[10px] text-gray-500 uppercase font-semibold leading-tight">Equity Risk<br>Premium</span>
+      <span class="text-[10px] uppercase font-semibold leading-tight" style="color:var(--yf-muted)">股权风险溢价<br>Equity Risk Premium</span>
       ${pill(erpSig)}
     </div>
     <div class="flex items-baseline gap-1">
       <span class="text-2xl font-bold" style="color:${erpColor}">${e.erp.toFixed(2)}</span>
       <span class="text-xs text-gray-500">%</span>
     </div>
-    <div class="text-[10px] text-gray-500 mt-1">Earn yield ${e.sp500EarningsYield.toFixed(2)}% − 10Y ${e.usTreasury10y.toFixed(2)}%</div>
-    <div class="text-[10px] text-gray-600 mt-0.5">${e.erpHistoricalPercentile}th pctile · tap to expand ↓</div>
+    <div class="text-[10px] mt-1" style="color:var(--yf-dim)">盈利收益率 ${e.sp500EarningsYield.toFixed(2)}% − 10Y ${e.usTreasury10y.toFixed(2)}%</div>
+    <div class="flex items-center gap-2 mt-1"><a href="https://fred.stlouisfed.org/series/DGS10" target="_blank" class="yf-link"><i class="fas fa-external-link-alt text-[9px]"></i>FRED</a><span class="text-[9px]" style="color:var(--yf-dim)">${e.erpHistoricalPercentile}th pctile · 展开 ↓</span></div>
   </div>
 
   <!-- Rates card -->
-  <div class="cursor-pointer bg-gray-800/70 border border-gray-600/40 rounded-xl p-3 hover:bg-gray-700/60 transition-colors"
-       onclick="window._dashToggle('sub-rates')">
+  <div class="cursor-pointer rounded-xl p-3 transition-colors" style="background:#1a1a2e;border:1px solid #2d2d3d" onclick="window._dashToggle('sub-rates')">
     <div class="flex items-start justify-between mb-2">
-      <span class="text-[10px] text-gray-500 uppercase font-semibold leading-tight">US Rates &<br>Yield Curve</span>
+      <span class="text-[10px] uppercase font-semibold leading-tight" style="color:var(--yf-muted)">美债利率<br>US Rates</span>
       ${pill(m.yieldCurveInverted?'warning':'normal', m.yieldCurveInverted?'Inverted':'Normal')}
     </div>
     <div class="flex items-baseline gap-1">
@@ -399,23 +398,22 @@ async function renderDashboard(el) {
   </div>
 
   <!-- SPX valuation card -->
-  <div class="cursor-pointer bg-gray-800/70 border border-yellow-500/30 rounded-xl p-3 hover:bg-gray-700/60 transition-colors"
-       onclick="window._dashToggle('sub-signals')">
+  <div class="cursor-pointer rounded-xl p-3 transition-colors" style="background:#1a1a2e;border:1px solid rgba(255,171,0,0.3)" onclick="window._dashToggle('sub-signals')">
     <div class="flex items-start justify-between mb-2">
-      <span class="text-[10px] text-gray-500 uppercase font-semibold leading-tight">SPX<br>Valuation</span>
+      <span class="text-[10px] uppercase font-semibold leading-tight" style="color:var(--yf-muted)">标普500估值<br>SPX Valuation</span>
       ${pill('warning', 'Rich')}
     </div>
     <div class="flex items-baseline gap-1">
       <span class="text-2xl font-bold text-yellow-400">21.8</span>
       <span class="text-xs text-gray-500">× fwd P/E</span>
     </div>
-    <div class="text-[10px] text-gray-500 mt-1">vs 10Y avg 17–18×</div>
-    <div class="text-[10px] text-gray-600 mt-0.5">tap to expand ↓</div>
+    <div class="text-[10px] mt-1" style="color:var(--yf-dim)">vs 10年均值 17-18× · 历史高位</div>
+    <div class="flex items-center gap-2 mt-1"><a href="https://finance.yahoo.com/quote/%5EGSPC/" target="_blank" class="yf-link"><i class="fas fa-external-link-alt text-[9px]"></i>^GSPC</a><span class="text-[9px]" style="color:var(--yf-dim)">展开 ↓</span></div>
   </div>
 
   <!-- Composite score card -->
-  <div class="bg-gray-800/70 border border-gray-600/40 rounded-xl p-3">
-    <div class="text-[10px] text-gray-500 uppercase font-semibold mb-2">Composite Regime</div>
+  <div class="rounded-xl p-3" style="background:#1a1a2e;border:1px solid #2d2d3d">
+    <div class="text-[10px] uppercase font-semibold mb-2" style="color:var(--yf-muted)">综合市场状态 · Regime</div>
     <div class="text-2xl font-bold text-blue-400">${m.panicScore < 20 ? 'RISK-ON' : m.panicScore < 50 ? 'NEUTRAL' : 'RISK-OFF'}</div>
     <div class="text-[10px] text-gray-500 mt-1">Panic ${m.panicScore} · ERP ${e.erp.toFixed(2)}%</div>
     <div class="mt-2 space-y-1">
@@ -3575,6 +3573,7 @@ async function renderNewsAgent(el) {
     Geopolitics_SupplyChain:{ bg: 'bg-red-500/10',    border: 'border-red-500/30',    text: 'text-red-400',    pill: 'bg-red-500/20 text-red-300'   },
     Macro_K_Shape:          { bg: 'bg-amber-500/10',  border: 'border-amber-500/30',  text: 'text-amber-400',  pill: 'bg-amber-500/20 text-amber-300'},
     Distressed_Credit_RE:   { bg: 'bg-purple-500/10', border: 'border-purple-500/30', text: 'text-purple-400', pill: 'bg-purple-500/20 text-purple-300'},
+    Commodities_Gold_Oil:   { bg: 'bg-yellow-500/10', border: 'border-yellow-500/30', text: 'text-yellow-400', pill: 'bg-yellow-500/20 text-yellow-300'},
   };
   const SENTIMENT_STYLE = {
     bullish: 'bg-emerald-500/20 text-emerald-300',
