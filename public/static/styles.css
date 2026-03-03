@@ -1,0 +1,82 @@
+/* QuantAlpha Platform - Custom Styles */
+:root {
+  --navy: #0d1221;
+  --navy-mid: #1a2540;
+  --navy-lite: #1e2d4a;
+  --gold: #c9a84c;
+  --cyan: #22d3ee;
+  --green: #10b981;
+  --red: #ef4444;
+  --amber: #f59e0b;
+}
+
+* { box-sizing: border-box; }
+body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: #0d1221; }
+::-webkit-scrollbar-thumb { background: #1e2d4a; border-radius: 2px; }
+
+/* Nav active */
+.nav-btn.active { background: #1a2540 !important; color: #22d3ee !important; border-left: 2px solid #22d3ee; }
+.nav-btn.active i { color: #22d3ee; }
+
+/* Cards */
+.card { background: #0d1221; border: 1px solid #1e2d4a; border-radius: 10px; }
+.card-gold { border-color: rgba(201,168,76,0.3); }
+
+/* KPI Card */
+.kpi-card { background: linear-gradient(135deg, #0d1221 0%, #111827 100%); border: 1px solid #1e2d4a; border-radius: 10px; padding: 1.25rem; }
+.kpi-card:hover { border-color: #22d3ee40; transform: translateY(-1px); transition: all 0.2s; }
+
+/* Tables */
+.data-table { width: 100%; border-collapse: collapse; }
+.data-table th { padding: 8px 12px; text-align: left; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #6b7280; border-bottom: 1px solid #1e2d4a; background: #0a0e1a; }
+.data-table td { padding: 9px 12px; font-size: 12px; border-bottom: 1px solid #111827; }
+.data-table tr:hover td { background: #111827; }
+.data-table tr:last-child td { border-bottom: none; }
+
+/* Status badges */
+.badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 9999px; font-size: 10px; font-weight: 600; }
+.badge-running { background: rgba(16,185,129,0.15); color: #10b981; }
+.badge-paused  { background: rgba(245,158,11,0.15); color: #f59e0b; }
+.badge-stopped { background: rgba(107,114,128,0.15); color: #9ca3af; }
+.badge-backtesting { background: rgba(139,92,246,0.15); color: #a78bfa; }
+.badge-beat   { background: rgba(16,185,129,0.15); color: #10b981; }
+.badge-miss   { background: rgba(239,68,68,0.15); color: #ef4444; }
+.badge-inline { background: rgba(245,158,11,0.15); color: #f59e0b; }
+.badge-live     { background: rgba(34,211,238,0.15); color: #22d3ee; }
+.badge-validated{ background: rgba(16,185,129,0.15); color: #10b981; }
+
+/* Positive/Negative */
+.pos { color: #10b981; }
+.neg { color: #ef4444; }
+.neu { color: #9ca3af; }
+
+/* Score bar */
+.score-bar { height: 4px; border-radius: 2px; background: #1e2d4a; overflow: hidden; }
+.score-bar-fill { height: 100%; border-radius: 2px; transition: width 0.6s ease; }
+
+/* Tab */
+.tab-btn { padding: 6px 14px; font-size: 12px; border-radius: 6px; color: #6b7280; cursor: pointer; transition: all 0.15s; border: 1px solid transparent; }
+.tab-btn:hover { color: #e5e7eb; background: #1a2540; }
+.tab-btn.active { color: #22d3ee; background: rgba(34,211,238,0.1); border-color: rgba(34,211,238,0.3); }
+
+/* Chart container */
+.chart-wrap { position: relative; }
+
+/* Bloomberg-style alert */
+.bbg-alert { background: rgba(201,168,76,0.1); border: 1px solid rgba(201,168,76,0.3); border-radius: 6px; padding: 8px 12px; font-size: 11px; color: #c9a84c; }
+.divergence-flag { color: #f59e0b; }
+
+/* Loading skeleton */
+.skeleton { background: linear-gradient(90deg, #1a2540 25%, #1e2d4a 50%, #1a2540 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; border-radius: 4px; }
+@keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+/* Animate */
+@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+.fade-in { animation: fadeIn 0.3s ease; }
+
+/* Progress ring */
+.prog-ring { transform: rotate(-90deg); }
