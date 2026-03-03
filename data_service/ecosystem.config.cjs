@@ -3,7 +3,7 @@ module.exports = {
     name: 'data-service',
     script: 'python3',
     args: 'data_service/app.py',
-    env: { NODE_ENV: 'production', FACTSET_API_KEY: '' },
+    env: { NODE_ENV: 'production', FACTSET_API_KEY: '5IVQVOoEXppYS0UVEte9cF51pUXjOytFtLnLPyny' },
     watch: false,
     instances: 1,
     exec_mode: 'fork',

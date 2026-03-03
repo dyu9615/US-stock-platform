@@ -435,12 +435,60 @@ app.get('/api/live/macro', async (c) => {
   }
 })
 
-// ── FactSet cross-validation ─────────────────────────────────────────────────
+// ── FactSet NTM consensus estimates (MUST be before wildcard :ticker route) ──
+app.get('/api/live/factset/consensus/:ticker', async (c) => {
+  try {
+    return proxyFetch(`${DATA_SVC}/api/factset/consensus/${c.req.param('ticker')}`)
+  } catch(e: any) {
+    return c.json({ error: e.message }, 503)
+  }
+})
+
+// ── FactSet + YF cross-validation with >1% divergence flags ─────────────────
+app.get('/api/live/factset/crossvalidate/:ticker', async (c) => {
+  try {
+    return proxyFetch(`${DATA_SVC}/api/factset/crossvalidate/${c.req.param('ticker')}`)
+  } catch(e: any) {
+    return c.json({ error: e.message }, 503)
+  }
+})
+
+// ── FactSet ML training data ──────────────────────────────────────────────────
+app.get('/api/live/factset/ml-data/:ticker', async (c) => {
+  const years = c.req.query('years') || '3'
+  try {
+    return proxyFetch(`${DATA_SVC}/api/factset/ml-data/${c.req.param('ticker')}?years=${years}`)
+  } catch(e: any) {
+    return c.json({ error: e.message }, 503)
+  }
+})
+
+// ── FactSet ticker validate (wildcard — keep LAST among factset routes) ───────
 app.get('/api/live/factset/:ticker', async (c) => {
   try {
     return proxyFetch(`${DATA_SVC}/api/factset/validate/${c.req.param('ticker')}`)
   } catch(e: any) {
     return c.json({ error: e.message, source: 'data_service_unavailable' }, 503)
+  }
+})
+
+// ── Live news (Yahoo Finance + FactSet + Global + Congress) ──────────────────
+app.get('/api/live/news', async (c) => {
+  const cat = c.req.query('category') || 'all'
+  const limit = c.req.query('limit') || '50'
+  try {
+    return proxyFetch(`${DATA_SVC}/api/news/live?category=${cat}&limit=${limit}`)
+  } catch(e: any) {
+    return c.json({ error: e.message, articles: [] }, 503)
+  }
+})
+
+// ── News for specific ticker ──────────────────────────────────────────────────
+app.get('/api/live/news/ticker/:ticker', async (c) => {
+  try {
+    return proxyFetch(`${DATA_SVC}/api/news/ticker/${c.req.param('ticker')}`)
+  } catch(e: any) {
+    return c.json({ error: e.message, articles: [] }, 503)
   }
 })
 

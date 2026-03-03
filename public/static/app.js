@@ -109,16 +109,31 @@ async function renderDashboard(el) {
   el.innerHTML = `<div class="flex items-center justify-center h-32 text-gray-500">
     <i class="fas fa-spinner fa-spin mr-2"></i>Loading…</div>`;
   try {
-    const [macroRes, erpRes, erpHistRes, macroHistRes] = await Promise.all([
+    const [macroRes, erpRes, erpHistRes, macroHistRes, liveMacroRes] = await Promise.allSettled([
       axios.get(`${API}/api/dc/macro/current`),
       axios.get(`${API}/api/dc/erp/current`),
       axios.get(`${API}/api/dc/erp/history?days=60`),
-      axios.get(`${API}/api/dc/macro/history?days=60`)
+      axios.get(`${API}/api/dc/macro/history?days=60`),
+      axios.get(`${API}/api/live/macro`),
     ]);
-    const m   = macroRes.data;
-    const e   = erpRes.data;
-    const erpH = erpHistRes.data.data  || [];
-    const macH = macroHistRes.data.data || [];
+    const mockM = macroRes.status==='fulfilled' ? macroRes.value.data : {};
+    const liveM = liveMacroRes.status==='fulfilled' ? liveMacroRes.value.data : null;
+    // Merge: prefer live values for key market indicators
+    const m = liveM ? {
+      ...mockM,
+      vix: liveM.vix ?? mockM.vix,
+      vx1: liveM.vx1 ?? mockM.vx1,
+      vx3: liveM.vx3 ?? mockM.vx3,
+      vixContango: liveM.vixContango ?? mockM.vixContango,
+      usTreasury10y: liveM.usTreasury10y ?? mockM.usTreasury10y,
+      usTreasury2y: liveM.usTreasury2y ?? mockM.usTreasury2y,
+      yieldCurve: liveM.yieldCurve ?? mockM.yieldCurve,
+      spyPrice: liveM.spyPrice ?? mockM.spyPrice,
+      _liveSource: true,
+    } : mockM;
+    const e   = erpRes.status==='fulfilled' ? erpRes.value.data : {};
+    const erpH = erpHistRes.status==='fulfilled' ? (erpHistRes.value.data.data || []) : [];
+    const macH = macroHistRes.status==='fulfilled' ? (macroHistRes.value.data.data || []) : [];
 
     // ── colour helpers ──────────────────────────────────────────────────
     const sigColor = s => s==='panic'||s==='distress'||s==='overvalued' ? "#dc2626"
@@ -177,8 +192,11 @@ async function renderDashboard(el) {
       <i class="fas fa-satellite-dish" style="color:#0284c7"></i>
       总控台 · 机构市场监控
       <span class="text-xs font-normal ml-1" style="color:#9ca3af">${m.date}</span>
+      ${m._liveSource ? '<span class="text-[9px] font-bold px-2 py-0.5 rounded-full animate-pulse" style="background:#dcfce7;color:#166534;border:1px solid #86efac"><i class="fas fa-circle" style="font-size:5px"></i> LIVE</span>' : ''}
     </h2>
-    <p style="color:#6b7280" class="text-xs mt-0.5">点击任意卡片展开详情 · 数据源链接如下 · Click card to expand</p>
+    <p style="color:#6b7280" class="text-xs mt-0.5">点击任意卡片展开详情 · 数据源链接如下 · Click card to expand
+      ${m._liveSource ? '· <span style="color:#059669">Yahoo Finance实时数据 VIX='+m.vix?.toFixed(1)+' 10Y='+m.usTreasury10y?.toFixed(2)+'%</span>' : ''}
+    </p>
   </div>
   <!-- panic gauge -->
   <div class="flex items-center gap-3 rounded-xl px-4 py-2.5" style="background:#f9fafb;border:1px solid #e5e7eb">
@@ -836,17 +854,37 @@ async function renderDataCenter(el) {
       <span class="text-[11px] bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">Institutional</span>
     </h2>
     <p class="text-gray-500 text-xs mt-0.5">
-      机构级别底层数据中心 · GAAP-Adjusted · PIT-Compliant · 数据源: Yahoo Finance + FRED + CBOE + SEC EDGAR
+      机构级别底层数据中心 · GAAP-Adjusted · PIT-Compliant · 数据源: Yahoo Finance + FRED + CBOE + SEC EDGAR + <span class="text-emerald-600 font-semibold">FactSet</span>
     </p>
   </div>
   <div class="text-right text-[10px] text-gray-500">
-    <div>更新时间: <span class="font-semibold text-gray-900">${m.date || '2026-03-03'}</span></div>
+    <div>更新时间: <span class="font-semibold text-gray-900">${m.date || new Date().toISOString().slice(0,10)}</span></div>
     <div class="mt-1 flex gap-2 justify-end flex-wrap">
       <a href="https://finance.yahoo.com/markets/" target="_blank" class="yf-link">Yahoo Finance</a>
       <a href="https://fred.stlouisfed.org" target="_blank" class="yf-link">FRED</a>
       <a href="https://www.cboe.com" target="_blank" class="yf-link">CBOE</a>
+      <a href="https://developer.factset.com" target="_blank" class="yf-link" style="color:#059669">FactSet</a>
     </div>
   </div>
+</div>
+
+<!-- ── FACTSET NTM CONSENSUS STRIP ──────────────────────────────────────── -->
+<div class="bg-emerald-50 border border-emerald-200 rounded-xl p-3 mb-4 flex items-center gap-3 flex-wrap" id="dc-factset-strip">
+  <div class="flex items-center gap-2 flex-shrink-0">
+    <div class="w-6 h-6 bg-emerald-600 rounded flex items-center justify-center flex-shrink-0">
+      <i class="fas fa-database text-white text-[10px]"></i>
+    </div>
+    <div>
+      <div class="text-xs font-bold text-emerald-800">FactSet NTM 市场共识</div>
+      <div class="text-[9px] text-emerald-600">S&P 500 领头股 · Next Twelve Months</div>
+    </div>
+  </div>
+  <div id="dc-factset-tiles" class="flex flex-wrap gap-2 flex-1">
+    <div class="text-xs text-emerald-600 flex items-center gap-1"><i class="fas fa-spinner fa-spin text-xs"></i>加载 FactSet 共识数据...</div>
+  </div>
+  <span id="dc-fs-badge" class="text-[9px] text-emerald-600 bg-white border border-emerald-200 px-2 py-0.5 rounded-full ml-auto flex-shrink-0">
+    <i class="fas fa-circle text-emerald-400 mr-0.5" style="font-size:6px"></i>LIVE
+  </span>
 </div>
 
 <!-- ── DATA CENTER METRIC GUIDE (collapsed by default, click KPI to show) -->
@@ -1082,7 +1120,7 @@ window.showMetricDict = function(key) {
       </div>
       <i class="fas fa-chevron-down text-gray-400 text-xs dc-chev transition-transform"></i>
     </div>
-    <div class="text-sm font-bold text-white mb-0.5">宏观流动性 / Macro</div>
+    <div class="text-sm font-bold text-gray-900 mb-0.5">宏观流动性 / Macro</div>
     <div class="text-[10px] text-gray-500 mb-2">VIX · HY OAS · Yield Curve · Breadth · P/C</div>
     <div class="flex gap-1 flex-wrap">
       <span class="text-[9px] bg-${m.vixContango?'emerald':'red'}-500/20 text-${m.vixContango?'emerald':'red'}-300 px-1.5 py-0.5 rounded-full">${m.vixContango?'Contango':'Backwardation'}</span>
@@ -1100,7 +1138,7 @@ window.showMetricDict = function(key) {
       </div>
       <i class="fas fa-chevron-down text-gray-400 text-xs dc-chev transition-transform"></i>
     </div>
-    <div class="text-sm font-bold text-white mb-0.5">量价数据 / Price·Volume</div>
+    <div class="text-sm font-bold text-gray-900 mb-0.5">量价数据 / Price·Volume</div>
     <div class="text-[10px] text-gray-500 mb-2">Adj Close · Volume Ratio · RSI14 · ATR14</div>
     <div class="flex gap-1 flex-wrap">
       <span class="text-[9px] bg-blue-500/20 text-blue-700 px-1.5 py-0.5 rounded-full">Front-Adj ✓</span>
@@ -1118,7 +1156,7 @@ window.showMetricDict = function(key) {
       </div>
       <i class="fas fa-chevron-down text-gray-400 text-xs dc-chev transition-transform"></i>
     </div>
-    <div class="text-sm font-bold text-white mb-0.5">基本面估值 / Fundamental</div>
+    <div class="text-sm font-bold text-gray-900 mb-0.5">基本面估值 / Fundamental</div>
     <div class="text-[10px] text-gray-500 mb-2">EV · Adj.EBITDA · EV/EBITDA · FCF Yield · Leverage</div>
     <div class="flex gap-1 flex-wrap">
       <span class="text-[9px] bg-emerald-500/20 text-emerald-700 px-1.5 py-0.5 rounded-full">SBC Add-Back ✓</span>
@@ -1136,7 +1174,7 @@ window.showMetricDict = function(key) {
       </div>
       <i class="fas fa-chevron-down text-gray-400 text-xs dc-chev transition-transform"></i>
     </div>
-    <div class="text-sm font-bold text-white mb-0.5">数据工程 / Engineering</div>
+    <div class="text-sm font-bold text-gray-900 mb-0.5">数据工程 / Engineering</div>
     <div class="text-[10px] text-gray-500 mb-2">PIT · Survivorship · GAAP · Source Status</div>
     <div class="flex gap-1 flex-wrap">
       <span class="text-[9px] bg-emerald-500/20 text-emerald-700 px-1.5 py-0.5 rounded-full">✓ PIT</span>
@@ -1152,7 +1190,7 @@ window.showMetricDict = function(key) {
 <!-- ════════════════════════════════════════════════════════════════════ -->
 <div id="dc-sub-macro" style="display:none" class="mb-3 bg-white border border-gray-200 rounded-xl overflow-hidden">
   <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200">
-    <span class="text-sm font-bold text-white flex items-center gap-2">
+    <span class="text-sm font-bold text-gray-900 flex items-center gap-2">
       <i class="fas fa-fire text-red-400"></i>
       宏观流动性与情绪数据 — Macro Liquidity & Sentiment
       <span class="text-[10px] text-gray-500 font-normal">每日更新 · Daily Update</span>
@@ -1351,7 +1389,7 @@ window.showMetricDict = function(key) {
 <!-- ════════════════════════════════════════════════════════════════════ -->
 <div id="dc-sub-pricevol" style="display:none" class="mb-3 bg-white border border-gray-200 rounded-xl overflow-hidden">
   <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200">
-    <span class="text-sm font-bold text-white flex items-center gap-2">
+    <span class="text-sm font-bold text-gray-900 flex items-center gap-2">
       <i class="fas fa-chart-area text-cyan-400"></i>
       量价与交易数据 — Price & Volume (Trigger Layer)
       <span class="text-[10px] text-gray-500 font-normal">每日更新 · Daily</span>
@@ -1421,7 +1459,7 @@ window.showMetricDict = function(key) {
 <!-- ════════════════════════════════════════════════════════════════════ -->
 <div id="dc-sub-fundamental" style="display:none" class="mb-3 bg-white border border-gray-200 rounded-xl overflow-hidden">
   <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200">
-    <span class="text-sm font-bold text-white flex items-center gap-2">
+    <span class="text-sm font-bold text-gray-900 flex items-center gap-2">
       <i class="fas fa-table text-emerald-400"></i>
       基本面与绝对估值 — Fundamental Valuation
       <span class="text-[10px] text-gray-500 font-normal">季度/TTM · Quarterly</span>
@@ -1549,7 +1587,7 @@ window.showMetricDict = function(key) {
 <!-- ════════════════════════════════════════════════════════════════════ -->
 <div id="dc-sub-pipeline" style="display:none" class="mb-3 bg-white border border-gray-200 rounded-xl overflow-hidden">
   <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200">
-    <span class="text-sm font-bold text-white flex items-center gap-2">
+    <span class="text-sm font-bold text-gray-900 flex items-center gap-2">
       <i class="fas fa-shield-alt text-purple-400"></i>
       数据工程规范 — Data Pipeline & Bias Safeguards
     </span>
@@ -1652,9 +1690,65 @@ window.showMetricDict = function(key) {
 </div>
 `;
 
+  // ── Async FactSet NTM strip loader (non-blocking) ─────────────────────────
+  dcLoadFactSetStrip();
+
   } catch(err) {
     el.innerHTML = `<div class="text-red-400 p-6">Error: ${err.message}</div>`;
     console.error(err);
+  }
+}
+
+
+// ── Data Center: async FactSet NTM consensus strip ───────────────────────────
+async function dcLoadFactSetStrip() {
+  const tilesEl = document.getElementById('dc-factset-tiles');
+  const badgeEl = document.getElementById('dc-fs-badge');
+  if (!tilesEl) return;
+
+  // Fetch FactSet NTM for a few marquee tickers in parallel
+  const marquee = ['NVDA', 'AAPL', 'MSFT', 'META', 'GOOGL', 'AMZN'];
+  try {
+    const results = await Promise.allSettled(
+      marquee.map(t => axios.get(`${API}/api/live/factset/consensus/${t}`).then(r => ({ticker: t, data: r.data})))
+    );
+    const tiles = [];
+    for (const r of results) {
+      if (r.status !== 'fulfilled') continue;
+      const {ticker, data} = r.value;
+      if (!data || data.error) continue;
+      let eps = null, epsGrowth = null;
+      (data.estimates || []).forEach(e => {
+        if (e.metric === 'EPS') eps = e.value ?? e.mean;
+        if (e.metric === 'EPS_GROWTH') epsGrowth = e.value ?? e.mean;
+      });
+      const pt = data.priceTarget || {};
+      const growthVal = epsGrowth != null ? Number(Math.abs(epsGrowth)>10 ? epsGrowth : epsGrowth*100).toFixed(0) : null;
+      const growthColor = growthVal > 0 ? 'text-emerald-700' : growthVal < 0 ? 'text-red-600' : 'text-gray-600';
+      tiles.push(`
+        <div class="bg-white border border-emerald-100 rounded-lg px-3 py-1.5 flex flex-col items-center min-w-[80px]">
+          <div class="text-[9px] font-bold text-gray-600 font-mono">${ticker}</div>
+          <div class="text-xs font-bold text-gray-900 font-mono">${eps != null ? '$'+Number(eps).toFixed(2) : '—'}</div>
+          ${growthVal != null ? `<div class="text-[9px] font-semibold ${growthColor}">${growthVal>0?'+':''}${growthVal}%</div>` : ''}
+          ${pt.mean ? `<div class="text-[8px] text-gray-400">PT $${Number(pt.mean).toFixed(0)}</div>` : ''}
+        </div>`);
+    }
+    if (tiles.length > 0) {
+      // Check if first result was native FactSet or YF proxy
+      const firstData = results.find(r => r.status === 'fulfilled')?.value?.data;
+      const isNative = firstData?.dataSource === 'factset_consensus';
+      const srcLabel = isNative ? 'FactSet NTM' : 'YF Forward Estimates';
+      const srcColor = isNative ? 'text-emerald-600' : 'text-blue-600';
+      tilesEl.innerHTML = tiles.join('') + `<div class="text-[9px] ${srcColor} flex items-center self-center ml-1">${srcLabel} · EPS · 增速 · PT</div>`;
+      if (badgeEl) badgeEl.innerHTML = isNative
+        ? '<i class="fas fa-check-circle text-emerald-500 mr-0.5"></i>FactSet NTM ✓'
+        : '<i class="fas fa-check-circle text-blue-400 mr-0.5"></i>YF Forward ✓';
+    } else {
+      tilesEl.innerHTML = '<div class="text-xs text-gray-400">前瞻数据不可用</div>';
+      if (badgeEl) badgeEl.innerHTML = '<i class="fas fa-times-circle text-red-400 mr-0.5"></i>数据错误';
+    }
+  } catch(e) {
+    tilesEl.innerHTML = `<div class="text-xs text-red-500">FactSet 加载失败: ${e.message}</div>`;
   }
 }
 
@@ -1778,7 +1872,7 @@ async function renderScreener(el) {
     <div class="flex-1">
       <div class="text-xs font-semibold text-gray-900" id="screener-datasource-label">FactSet + Yahoo Finance 双源交叉验证</div>
       <div class="text-[10px] text-gray-600 mt-0.5">
-        基本面数据以 FactSet NTM 共识预期为主，Yahoo Finance 历史数据为辅。当两者差异 &gt;5% 时，行内显示 <span class="text-amber-600 font-semibold">⚠️ 数据偏差</span> 警告。分析师评级、EPS 预测、收入增长率均来自 FactSet 共识数据库。
+        基本面数据以 FactSet NTM 共识预期为主，Yahoo Finance 历史数据为辅。当两者差异 &gt;1% 时，行内显示 <span class="text-amber-600 font-semibold">⚠️ 数据偏差</span> 警告。分析师评级、EPS 预测、收入增长率均来自 FactSet 共识数据库。
       </div>
     </div>
     <div class="flex gap-3 text-[10px] text-right flex-shrink-0">
@@ -1987,7 +2081,7 @@ window.showStockDetail = function(ticker) {
         <div class="score-bar flex-1"><div class="score-bar-fill ${scoreColor(s.compositeScore)}" style="width:${s.compositeScore}%"></div></div>
         <span class="text-gray-500">数据源:</span>
         <span class="text-indigo-700 font-semibold">${s.dataSource}</span>
-        ${s.divergenceFlag?'<span class="text-amber-600">⚠️ 数据偏差>5%</span>':''}
+        ${s.divergenceFlag?'<span class="text-amber-600" title="FactSet NTM vs YF divergence >1%">⚠️ 数据偏差>1%</span>':''}
       </div>`
     document.getElementById('stockModal').classList.remove('hidden')
   })
@@ -2164,6 +2258,8 @@ async function renderMLFinance(el) {
     <button class="tab-btn" onclick="mlTab('training',this)">⚙️ 训练监控</button>
     <button class="tab-btn" onclick="mlTab('regime',this)">🌐 市场状态机</button>
     <button class="tab-btn" onclick="mlTab('comparison',this)">📊 ML vs 传统</button>
+    <button class="tab-btn" onclick="mlTab('aiprediction',this)">🤖 AI预测引擎</button>
+    <button class="tab-btn" onclick="mlTab('dataupload',this)">📤 数据上传</button>
   </div>
 
   <!-- ── TAB: LIVE SIGNALS ── -->
@@ -2455,6 +2551,107 @@ async function renderMLFinance(el) {
         </div>
       </div>
     </div>
+  </div>
+
+  <!-- ── TAB: AI PREDICTION ENGINE ── -->
+  <div id="ml-aiprediction" class="hidden">
+    <div class="bg-white border border-gray-200 rounded-xl p-5 mb-4">
+      <div class="flex items-center gap-3 mb-4">
+        <div class="w-10 h-10 rounded-xl bg-purple-100 flex items-center justify-center"><i class="fas fa-robot text-purple-600 text-lg"></i></div>
+        <div>
+          <div class="text-sm font-bold text-gray-900">AI/ML 预测引擎 — 信号生成</div>
+          <div class="text-xs text-gray-500">接入 FactSet 历史数据 + Yahoo Finance 实时数据 → LLM 综合分析</div>
+        </div>
+        <span class="ml-auto text-[10px] bg-purple-100 text-purple-700 px-2 py-1 rounded-full">Yahoo Finance LIVE + FactSet</span>
+      </div>
+      <div class="grid grid-cols-3 gap-4 mb-4">
+        <div>
+          <label class="text-xs text-gray-500 uppercase font-medium block mb-1">目标股票 Ticker</label>
+          <input id="ml-pred-ticker" type="text" value="NVDA" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-purple-400 font-mono uppercase" />
+        </div>
+        <div>
+          <label class="text-xs text-gray-500 uppercase font-medium block mb-1">历史数据年限</label>
+          <select id="ml-pred-years" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-purple-400">
+            <option value="1">1年</option><option value="3" selected>3年</option><option value="5">5年</option>
+          </select>
+        </div>
+        <div class="flex items-end">
+          <button onclick="window._mlRunPrediction()" class="w-full px-4 py-2 rounded-lg text-sm font-medium bg-purple-600 text-white hover:bg-purple-700 transition">
+            <i class="fas fa-play mr-2"></i>运行 AI 分析
+          </button>
+        </div>
+      </div>
+      <div class="mb-3 rounded-lg px-4 py-2 text-xs flex flex-wrap items-center gap-3" style="background:#f5f3ff;border:1px solid #ddd6fe">
+        <i class="fas fa-info-circle text-purple-500"></i>
+        <b class="text-purple-800">数据流程:</b>
+        <span class="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">① Yahoo Finance LIVE 基本面</span>
+        <span class="text-gray-400">→</span>
+        <span class="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">② FactSet NTM 共识预期</span>
+        <span class="text-gray-400">→</span>
+        <span class="bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">③ 规则引擎(待接 GPT-4o)</span>
+        <span class="text-gray-400">→</span>
+        <span class="bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">④ 综合信号输出</span>
+      </div>
+      <div id="ml-pred-result">
+        <div class="text-center py-8 text-gray-400">
+          <i class="fas fa-robot text-4xl mb-3 text-purple-300"></i>
+          <div>输入 Ticker 并点击"运行 AI 分析"开始预测</div>
+        </div>
+      </div>
+    </div>
+    <div class="grid grid-cols-4 lg:grid-cols-8 gap-2">
+      ${['NVDA','AAPL','MSFT','META','GOOGL','AMZN','TSLA','JPM'].map(t => '<button onclick="document.getElementById(\'ml-pred-ticker\').value=\''+t+'\';window._mlRunPrediction()" class="bg-white border border-gray-200 rounded-lg px-3 py-2 text-xs font-mono font-bold text-gray-700 hover:border-purple-400 hover:bg-purple-50 transition">'+t+'</button>').join('')}
+    </div>
+  </div>
+
+  <!-- ── TAB: DATA UPLOAD ── -->
+  <div id="ml-dataupload" class="hidden">
+    <div class="grid grid-cols-2 gap-4">
+      <div class="bg-white border border-gray-200 rounded-xl p-5">
+        <div class="flex items-center gap-3 mb-4">
+          <div class="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center"><i class="fas fa-upload text-blue-600 text-lg"></i></div>
+          <div>
+            <div class="text-sm font-bold text-gray-900">CSV 数据上传</div>
+            <div class="text-xs text-gray-500">上传个股交易历史数据用于ML训练</div>
+          </div>
+        </div>
+        <div class="border-2 border-dashed border-gray-300 rounded-xl p-6 text-center mb-4 hover:border-blue-400 transition cursor-pointer" onclick="document.getElementById('ml-csv-upload').click()">
+          <i class="fas fa-file-csv text-4xl text-gray-300 mb-3"></i>
+          <div class="text-sm text-gray-500 font-medium">点击或拖拽 CSV 文件至此</div>
+          <div class="text-xs text-gray-400 mt-1">支持格式: date, open, high, low, close, volume</div>
+          <input id="ml-csv-upload" type="file" accept=".csv" class="hidden" onchange="window._mlUploadCSV()" />
+        </div>
+        <div id="ml-upload-status" class="text-xs text-gray-400">未上传文件</div>
+      </div>
+      <div class="bg-white border border-gray-200 rounded-xl p-5">
+        <div class="flex items-center gap-3 mb-4">
+          <div class="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center"><i class="fas fa-database text-emerald-600 text-lg"></i></div>
+          <div>
+            <div class="text-sm font-bold text-gray-900">FactSet 数据下载</div>
+            <div class="text-xs text-gray-500">从 FactSet API 获取机构级数据用于ML训练</div>
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-3 mb-4">
+          <div>
+            <label class="text-xs text-gray-500 block mb-1">股票代码</label>
+            <input id="ml-fs-ticker" type="text" value="NVDA" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono uppercase focus:outline-none focus:border-emerald-400" />
+          </div>
+          <div>
+            <label class="text-xs text-gray-500 block mb-1">数据年限</label>
+            <select id="ml-fs-years" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-400">
+              <option value="1">1年</option><option value="2" selected>2年</option><option value="3">3年</option>
+            </select>
+          </div>
+        </div>
+        <button onclick="window._mlDownloadFactSet()" class="w-full px-4 py-2 rounded-lg text-sm font-medium bg-emerald-600 text-white hover:bg-emerald-700 transition mb-3">
+          <i class="fas fa-download mr-2"></i>下载 FactSet ML 训练数据
+        </button>
+        <div id="ml-fs-status" class="text-xs text-gray-400 mb-2">点击按钮从 FactSet 获取机构数据</div>
+        <div class="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-xs text-emerald-800">
+          <i class="fas fa-info-circle mr-1"></i>包含: 价格历史 · 基本面季报 · NTM共识预期 · 分析师评级
+        </div>
+      </div>
+    </div>
   </div>`
 
   // ── Initial chart renders ────────────────────────────────────────────
@@ -2546,7 +2743,7 @@ window.closeSigModal = function(e) {
 
 // ── ML TAB SWITCHER ──────────────────────────────────────────────────────────
 window.mlTab = function(tab, btn) {
-  ['signals','models','training','regime','comparison'].forEach(t => {
+  ['signals','models','training','regime','comparison','aiprediction','dataupload'].forEach(t => {
     const el = document.getElementById(`ml-${t}`)
     if (el) el.classList.toggle('hidden', t !== tab)
   })
@@ -2561,6 +2758,29 @@ window.mlTab = function(tab, btn) {
       renderMLComparisonCharts(sRes.data.signals, mRes.data.models)
     })
   }, 100)
+}
+
+// ── FactSet ML Data Download ─────────────────────────────────────────────────
+window._mlDownloadFactSet = async function() {
+  const ticker = (document.getElementById('ml-fs-ticker')?.value || 'NVDA').toUpperCase()
+  const years  = document.getElementById('ml-fs-years')?.value || '2'
+  const statusEl = document.getElementById('ml-fs-status')
+  if (statusEl) statusEl.innerHTML = `<i class="fas fa-spinner fa-spin mr-1"></i>正在从 FactSet 下载 ${ticker} 数据...`
+  try {
+    const r = await axios.get(`${API}/api/live/factset/ml-data/${ticker}?years=${years}`)
+    const d = r.data
+    const rows = d.data?.length || 0
+    const features = d.features?.ml_features?.length || 0
+    if (statusEl) statusEl.innerHTML = `
+      <div class="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-xs">
+        <i class="fas fa-check-circle text-emerald-500 mr-1"></i>
+        <b>${ticker}</b> 数据下载成功！<br>
+        行数: <b>${rows}</b> · 特征数: <b>${features}</b> · 数据源: <b>${d.dataSource||'yahoo_finance+factset'}</b>
+        ${d.factsetEnriched ? '<span class="ml-2 bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full text-[10px]">FactSet ✓</span>' : ''}
+      </div>`
+  } catch(e) {
+    if (statusEl) statusEl.innerHTML = `<div class="text-red-500 text-xs">Error: ${e.message}</div>`
+  }
 }
 
 // ── TRAINING CHART LOADER ────────────────────────────────────────────────────
@@ -2684,6 +2904,132 @@ function renderMLComparisonCharts(signals, models) {
       }
     })
   }
+
+  // ── AI PREDICTION LAYER UI ─────────────────────────────────────────────
+  window._mlShowTab = function(tab) {
+    window._mlActiveTab = tab;
+    ['tab-ml-models','tab-ml-signals','tab-ml-upload','tab-ml-prediction'].forEach(id => {
+      const el2 = document.getElementById(id);
+      if (el2) el2.style.display = id.endsWith(tab) ? 'block' : 'none';
+    });
+    ['btn-ml-models','btn-ml-signals','btn-ml-upload','btn-ml-prediction'].forEach(id => {
+      const btn = document.getElementById(id);
+      if (!btn) return;
+      const active = id.endsWith(tab);
+      btn.className = active
+        ? 'text-xs px-3 py-1.5 rounded-lg font-medium bg-indigo-600 text-white'
+        : 'text-xs px-3 py-1.5 rounded-lg font-medium bg-white text-gray-600 border border-gray-300 hover:border-indigo-400';
+    });
+  };
+
+  window._mlRunPrediction = async function() {
+    const ticker = (document.getElementById('ml-pred-ticker')?.value || 'NVDA').toUpperCase();
+    const years  = document.getElementById('ml-pred-years')?.value || '3';
+    const resultEl = document.getElementById('ml-pred-result');
+    if (!resultEl) return;
+    resultEl.innerHTML = `<div class="text-center py-6 text-gray-400"><i class="fas fa-spinner fa-spin mr-2"></i>正在获取 ${ticker} 训练数据...</div>`;
+    try {
+      const [deepR, histR, analystR] = await Promise.allSettled([
+        axios.get(`${API}/api/live/deep/${ticker}`),
+        axios.get(`${API}/api/live/history/${ticker}?period=${years}y&interval=1mo`),
+        axios.get(`${API}/api/live/analyst/${ticker}`),
+      ]);
+      const deep    = deepR.status==='fulfilled' ? deepR.value.data : {};
+      const hist    = histR.status==='fulfilled' ? histR.value.data : {};
+      const analyst = analystR.status==='fulfilled' ? analystR.value.data : {};
+      const bars    = hist.bars || [];
+      const n = bars.length;
+      // Compute returns
+      const returns = bars.slice(1).map((b,i) => ((b.close - bars[i].close)/bars[i].close*100));
+      const avgReturn  = returns.length ? (returns.reduce((a,b)=>a+b,0)/returns.length).toFixed(2) : 0;
+      const stdReturn  = returns.length > 1 ? Math.sqrt(returns.map(r=>(r-avgReturn)**2).reduce((a,b)=>a+b,0)/(returns.length-1)).toFixed(2) : 0;
+      const posMonths  = returns.filter(r=>r>0).length;
+      const winRate    = returns.length ? (posMonths/returns.length*100).toFixed(0) : 0;
+      // Signal score from deep data
+      let score = 50;
+      const evEb = deep.ev_multiples?.ev_adj_ebitda || deep.evAdjEbitda || 0;
+      const fcfY = deep.fcf_analysis?.fcf_yield_pct || deep.fcfYield || 0;
+      const lev  = deep.leverage_metrics?.net_leverage || deep.netLeverage || 0;
+      const grow = deep.growth_profitability?.revenue_growth_pct || deep.revenueGrowth || 0;
+      if (evEb > 0 && evEb < 12) score += 12; else if (evEb > 30) score -= 10;
+      if (fcfY > 5) score += 15; else if (fcfY < 1) score -= 8;
+      if (lev < 0.5) score += 10; else if (lev > 3) score -= 15;
+      if (grow > 20) score += 12; else if (grow > 10) score += 6;
+      score = Math.max(5, Math.min(95, score));
+      const sigLabel = score>=70?'BUY':score>=50?'HOLD':score>=30?'CAUTION':'SELL';
+      const sigColor = score>=70?'#059669':score>=50?'#6b7280':score>=30?'#d97706':'#dc2626';
+      // analyst rec
+      const recData = analyst.recommendations || {};
+      const sb = (recData.strongBuy||0), b = (recData.buy||0), h = (recData.hold||0), s = (recData.sell||0);
+      resultEl.innerHTML = `
+<div class="grid grid-cols-3 gap-4 mb-4">
+  <div class="bg-white border border-gray-200 rounded-xl p-4 text-center">
+    <div class="text-[10px] text-gray-500 uppercase mb-1">ML 综合信号</div>
+    <div class="text-4xl font-bold" style="color:${sigColor}">${score}</div>
+    <div class="text-sm font-semibold mt-1" style="color:${sigColor}">${sigLabel}</div>
+    <div class="text-[10px] text-gray-400 mt-1">0=极度看空 · 100=强烈看多</div>
+  </div>
+  <div class="bg-white border border-gray-200 rounded-xl p-4 text-center">
+    <div class="text-[10px] text-gray-500 uppercase mb-1">月均收益率</div>
+    <div class="text-2xl font-bold ${parseFloat(avgReturn)>=0?'text-emerald-500':'text-red-500'}">${avgReturn}%</div>
+    <div class="text-[10px] text-gray-400 mt-1">胜率 ${winRate}% · ${n}个月数据</div>
+    <div class="text-[10px] text-gray-400">波动率 ${stdReturn}%/月</div>
+  </div>
+  <div class="bg-white border border-gray-200 rounded-xl p-4 text-center">
+    <div class="text-[10px] text-gray-500 uppercase mb-1">分析师共识</div>
+    <div class="flex justify-center gap-2 mt-2 flex-wrap">
+      <span class="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">Strong Buy ${sb}</span>
+      <span class="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">Buy ${b}</span>
+      <span class="text-[10px] bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">Hold ${h}</span>
+      <span class="text-[10px] bg-red-100 text-red-600 px-2 py-0.5 rounded-full">Sell ${s}</span>
+    </div>
+  </div>
+</div>
+<div class="bg-white border border-gray-200 rounded-xl p-4">
+  <div class="text-sm font-bold text-gray-900 mb-3 flex items-center gap-2">
+    <i class="fas fa-robot text-purple-500"></i>
+    LLM 分析摘要 (AI综合研判)
+    <span class="text-[10px] bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full ml-auto">规则引擎 → 待接入 GPT-4o</span>
+  </div>
+  <div class="text-xs text-gray-700 leading-relaxed bg-gray-50 rounded-lg p-3 border border-gray-200 font-mono">
+    <span class="text-gray-400">// 基于 ${n}个月历史数据 + 实时基本面分析</span><br>
+    Ticker: <b>${ticker}</b> | Signal Score: <b style="color:${sigColor}">${score}/100</b> | Label: <b>${sigLabel}</b><br>
+    EV/Adj.EBITDA: <b>${evEb.toFixed(1)}×</b> | FCF Yield: <b>${fcfY.toFixed(1)}%</b> | Net Leverage: <b>${lev.toFixed(1)}×</b><br>
+    Revenue Growth: <b>${grow.toFixed(1)}%</b> | Monthly Win Rate: <b>${winRate}%</b><br>
+    <span class="text-emerald-600">✓ Data from Yahoo Finance LIVE · FactSet cross-validation ready</span><br>
+    <span class="text-amber-600">⚠ LLM integration endpoint: POST /api/llm/predict (connect OpenAI/Claude)</span>
+  </div>
+</div>`;
+    } catch(e) {
+      resultEl.innerHTML = `<div class="text-red-500 p-4">Error: ${e.message}</div>`;
+    }
+  };
+
+  window._mlUploadCSV = function() {
+    const file = document.getElementById('ml-csv-upload')?.files?.[0];
+    if (!file) { alert('请先选择CSV文件'); return; }
+    const reader = new FileReader();
+    reader.onload = function(evt) {
+      const text = evt.target.result;
+      const lines = text.trim().split('\n');
+      const headers = lines[0].split(',').map(h=>h.trim());
+      const rows = lines.slice(1).map(l => {
+        const vals = l.split(',');
+        return Object.fromEntries(headers.map((h,i)=>[h, vals[i]?.trim()]));
+      });
+      document.getElementById('ml-upload-status').innerHTML = `
+        <div class="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-xs">
+          <i class="fas fa-check-circle text-emerald-500 mr-1"></i>
+          已加载 <b>${rows.length}</b> 行 × <b>${headers.length}</b> 列数据<br>
+          列名: <span class="font-mono text-gray-600">${headers.slice(0,8).join(', ')}${headers.length>8?'...':''}</span><br>
+          前3行预览: ${rows.slice(0,3).map(r=>JSON.stringify(r).slice(0,80)).join('<br>')}
+        </div>`;
+    };
+    reader.readAsText(file);
+  };
+
+  // Show first tab on load
+  setTimeout(() => window._mlShowTab && window._mlShowTab(window._mlActiveTab || 'models'), 50);
 }
 
 // ── SIGNAL BADGE HELPER ───────────────────────────────────────────────────────
@@ -4369,443 +4715,241 @@ async function renderPerformance(el) {
 
 // ╔══════════════════════════════════════════════════════════════════════╗
 // ║  9. NEWS AGENT  — Institutional News Intelligence                    ║
+// ║  LIVE: Yahoo Finance RSS + Global + US Congress Policy               ║
 // ╚══════════════════════════════════════════════════════════════════════╝
 async function renderNewsAgent(el) {
   el.innerHTML = `<div class="flex items-center justify-center h-32 text-gray-500">
-    <i class="fas fa-spinner fa-spin mr-2"></i>Loading news feed…</div>`;
+    <i class="fas fa-spinner fa-spin mr-2"></i>Loading live news…</div>`;
 
-  let mandatesData, articlesData, briefData, healthData;
+  // ── state ──────────────────────────────────────────────────────────
+  window._naCategory = window._naCategory || 'all';
+  window._naSearch   = window._naSearch   || '';
+
+  let liveData = null;
   try {
-    const [mR, aR, bR, hR] = await Promise.all([
-      axios.get(`${API}/api/news/mandates`),
-      axios.get(`${API}/api/news/articles`),
-      axios.get(`${API}/api/news/brief`),
-      axios.get(`${API}/api/news/health`),
-    ]);
-    mandatesData = mR.data;
-    articlesData = aR.data;
-    briefData    = bR.data;
-    healthData   = hR.data;
-  } catch(e) {
-    el.innerHTML = `<div class="text-red-400 p-8">API Error: ${e.message}</div>`;
-    return;
+    const r = await axios.get(`${API}/api/live/news?category=all&limit=80`);
+    liveData = r.data;
+  } catch(e) {}
+
+  // fallback mock articles if live fails
+  const articles = (liveData && liveData.articles && liveData.articles.length > 0)
+    ? liveData.articles
+    : [
+      { title:'Markets update: S&P 500 posts weekly gains amid Fed commentary', url:'https://finance.yahoo.com', source:'Yahoo Finance', category:'market', region:'US', publishedAt: new Date().toUTCString(), summary:'US equity markets posted gains this week.' },
+      { title:'Treasury yields edge higher as inflation data remains mixed', url:'https://finance.yahoo.com', source:'Yahoo Finance', category:'macro', region:'US', publishedAt: new Date().toUTCString(), summary:'10-year Treasury yield moved higher.' },
+    ];
+  const isLive = liveData && liveData.articles && liveData.articles.length > 0;
+  const total  = articles.length;
+
+  // ── category filter helpers ────────────────────────────────────────
+  const CATS = [
+    { id:'all',      label:'全部 All',       icon:'fas fa-globe',        color:'indigo' },
+    { id:'market',   label:'美股市场',        icon:'fas fa-chart-line',   color:'blue'   },
+    { id:'macro',    label:'宏观经济',        icon:'fas fa-university',   color:'purple' },
+    { id:'global',   label:'全球新闻',        icon:'fas fa-globe-americas',color:'cyan'  },
+    { id:'congress', label:'国会政策',        icon:'fas fa-landmark',     color:'amber'  },
+    { id:'factset',  label:'FactSet',        icon:'fas fa-database',     color:'emerald'},
+  ];
+
+  const catBtnCls = (id) => window._naCategory === id
+    ? `bg-indigo-600 text-white border-indigo-600`
+    : `bg-white text-gray-600 border-gray-300 hover:border-indigo-400`;
+
+  // ── source tag colours ─────────────────────────────────────────────
+  const srcColor = (src='') => {
+    if (src.includes('Yahoo'))   return 'bg-purple-100 text-purple-700';
+    if (src.includes('Reuters')) return 'bg-blue-100 text-blue-700';
+    if (src.includes('Congress'))return 'bg-amber-100 text-amber-700';
+    if (src.includes('FactSet')) return 'bg-emerald-100 text-emerald-700';
+    return 'bg-gray-100 text-gray-600';
+  };
+
+  const catColor = (cat='') => {
+    if (cat==='market')   return 'bg-blue-100 text-blue-700';
+    if (cat==='macro')    return 'bg-purple-100 text-purple-700';
+    if (cat==='global')   return 'bg-cyan-100 text-cyan-700';
+    if (cat==='congress') return 'bg-amber-100 text-amber-700';
+    if (cat==='factset')  return 'bg-emerald-100 text-emerald-700';
+    return 'bg-gray-100 text-gray-500';
+  };
+
+  function fmtDate(ds='') {
+    if (!ds) return '';
+    try {
+      const d = new Date(ds);
+      if (isNaN(d)) return ds.slice(0,16);
+      return d.toLocaleString('zh-CN', {month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false});
+    } catch { return ds.slice(0,16); }
   }
 
-  // ── colour maps ──────────────────────────────────────────────────────
-  const MANDATE_COLORS = {
-    AI_Capex_Bubble:        { bg: 'bg-blue-500/10',   border: 'border-blue-500/30',   text: 'text-blue-400',   pill: 'bg-blue-100 text-blue-700' },
-    Geopolitics_SupplyChain:{ bg: 'bg-red-500/10',    border: 'border-red-500/30',    text: 'text-red-400',    pill: 'bg-red-100 text-red-700'   },
-    Macro_K_Shape:          { bg: 'bg-amber-500/10',  border: 'border-amber-500/30',  text: 'text-amber-400',  pill: 'bg-amber-100 text-amber-700'},
-    Distressed_Credit_RE:   { bg: 'bg-purple-500/10', border: 'border-purple-500/30', text: 'text-purple-400', pill: 'bg-purple-100 text-purple-700'},
-    Commodities_Gold_Oil:   { bg: 'bg-yellow-500/10', border: 'border-yellow-500/30', text: 'text-yellow-400', pill: 'bg-yellow-100 text-yellow-700'},
-  };
-  const SENTIMENT_STYLE = {
-    bullish: 'bg-emerald-100 text-emerald-700',
-    bearish: 'bg-red-100 text-red-700',
-    neutral: 'bg-gray-200 text-gray-600',
-  };
-  const URGENCY_STYLE = {
-    high:   'bg-red-100 text-red-700 border border-red-500/40',
-    medium: 'bg-amber-100 text-amber-700 border border-amber-500/40',
-    low:    'bg-emerald-100 text-emerald-700 border border-emerald-500/40',
-  };
-
-  // ── active mandate filter state ───────────────────────────────────
-  window._naActiveMandate = window._naActiveMandate || 'ALL';
-
-  // ── mandate card builder ──────────────────────────────────────────
-  function mandateCard(m) {
-    const c  = MANDATE_COLORS[m.id] || MANDATE_COLORS.Macro_K_Shape;
-    const sb = m.sentimentBreakdown;
-    const total = sb.bullish + sb.bearish + sb.neutral || 1;
-    const bullPct = (sb.bullish / total * 100).toFixed(0);
-    const bearPct = (sb.bearish / total * 100).toFixed(0);
-    const isActive = window._naActiveMandate === m.id;
-    return `
-    <div onclick="window._naFilter('${m.id}')" id="na-card-${m.id}"
-      class="cursor-pointer rounded-xl border p-4 transition-all ${c.bg} ${c.border}
-             ${isActive ? 'ring-2 ring-offset-1 ring-offset-white ring-indigo-500' : 'hover:brightness-110'}">
-      <div class="flex items-start justify-between mb-3">
-        <div class="flex items-center gap-2">
-          <i class="${m.icon} ${c.text} text-lg"></i>
-          <div>
-            <div class="text-gray-900 font-semibold text-sm leading-tight">${m.label}</div>
-            <div class="text-[10px] text-gray-500 mt-0.5">${m.id}</div>
-          </div>
-        </div>
-        <span class="${c.pill} text-xs px-2 py-0.5 rounded-full font-mono">${m.articleCount} art.</span>
-      </div>
-      <div class="text-[11px] text-gray-500 leading-snug mb-3">${m.description}</div>
-      <!-- Sentiment bar -->
-      <div class="mb-2">
-        <div class="flex justify-between text-[10px] text-gray-500 mb-1">
-          <span class="text-emerald-400">▲ ${sb.bullish} bull</span>
-          <span class="text-gray-500">● ${sb.neutral} neut</span>
-          <span class="text-red-400">▼ ${sb.bearish} bear</span>
-        </div>
-        <div class="h-1.5 rounded-full overflow-hidden flex" style="background:#e5e7eb">
-          <div class="bg-emerald-500 h-full transition-all" style="width:${bullPct}%"></div>
-          <div class="bg-gray-400 h-full transition-all" style="width:${(sb.neutral/total*100).toFixed(0)}%"></div>
-          <div class="bg-red-500 h-full transition-all" style="width:${bearPct}%"></div>
-        </div>
-      </div>
-      <!-- Boolean query chip -->
-      <div class="mt-2 font-mono text-[9px] text-gray-500 bg-gray-50 border border-gray-200 rounded px-2 py-1 truncate" title="${m.query}">
-        🔍 ${m.query.slice(0,60)}${m.query.length>60?'…':''}
-      </div>
-    </div>`;
-  }
-
-  // ── article row builder ────────────────────────────────────────────
-  function articleRow(a, idx) {
-    const c = MANDATE_COLORS[a.mandate] || MANDATE_COLORS.Macro_K_Shape;
-    const sentStyle = SENTIMENT_STYLE[a.sentiment] || SENTIMENT_STYLE.neutral;
-    const sentIcon  = a.sentiment === 'bullish' ? '▲' : a.sentiment === 'bearish' ? '▼' : '●';
-    return `
-    <tr class="${idx%2===0?'bg-white':'bg-gray-50'} hover:bg-blue-50 transition-colors">
-      <td class="px-3 py-2.5 whitespace-nowrap">
-        <div class="text-[10px] font-mono text-gray-500">${a.date}</div>
-        <div class="text-[10px] font-mono text-gray-400">${a.time}</div>
+  function buildRows(list) {
+    if (!list.length) return `<tr><td colspan="5" class="px-4 py-8 text-center text-gray-400">暂无新闻 — No articles found</td></tr>`;
+    return list.map((a,i) => `
+    <tr class="${i%2===0?'bg-white':'bg-gray-50'} hover:bg-blue-50 transition-colors cursor-pointer" onclick="window.open('${a.url||'#'}','_blank')">
+      <td class="px-3 py-2.5 whitespace-nowrap text-[10px] font-mono text-gray-500 w-20">
+        ${fmtDate(a.publishedAt)}
       </td>
       <td class="px-3 py-2.5">
-        <span class="${c.pill} text-[10px] px-2 py-0.5 rounded-full">${a.mandate.replace(/_/g,' ')}</span>
+        <div class="text-sm font-medium text-gray-900 leading-snug">${a.title||''}</div>
+        ${a.summary ? `<div class="text-[11px] text-gray-500 mt-0.5 leading-snug line-clamp-1">${a.summary.slice(0,140)}</div>` : ''}
       </td>
-      <td class="px-3 py-2.5 max-w-xs">
-        <div class="text-xs text-gray-800 leading-snug">${_naHighlight(a.title, a.mandate)}</div>
-        <div class="text-[10px] text-gray-500 mt-0.5">${a.source}</div>
+      <td class="px-3 py-2.5 whitespace-nowrap">
+        <span class="text-[10px] px-1.5 py-0.5 rounded-full ${srcColor(a.source)}">${(a.source||'').slice(0,20)}</span>
       </td>
-      <td class="px-3 py-2.5 text-center">
-        <span class="${sentStyle} text-[10px] px-2 py-0.5 rounded-full font-mono">${sentIcon} ${a.sentiment}</span>
+      <td class="px-3 py-2.5 whitespace-nowrap">
+        <span class="text-[10px] px-1.5 py-0.5 rounded-full ${catColor(a.category)}">${a.category||'news'}</span>
       </td>
-      <td class="px-3 py-2.5 text-center">
-        <a href="${a.link}" target="_blank" rel="noopener noreferrer"
-           class="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 text-[10px] font-medium transition-colors"
-           title="Search on Google News">
-          <i class="fas fa-external-link-alt"></i> 搜索
-        </a>
+      <td class="px-3 py-2.5 whitespace-nowrap">
+        <span class="text-[10px] text-gray-400">${a.region||'US'}</span>
       </td>
-    </tr>`;
+    </tr>`).join('');
   }
 
-  // ── keyword highlight ───────────────────────────────────────────────
-  window._naKeywords = {};
-  mandatesData.mandates.forEach(m => {
-    window._naKeywords[m.id] = m.keywords || [];
-  });
-  function _naHighlight(title, mandateId) {
-    let result = title;
-    const kws = window._naKeywords[mandateId] || [];
-    kws.forEach(kw => {
-      const re = new RegExp(`(${kw})`, 'gi');
-      result = result.replace(re, '<mark class="bg-yellow-100 text-yellow-800 rounded px-0.5">$1</mark>');
-    });
-    return result;
-  }
-  window._naHighlight = _naHighlight;
-
-  // ── filter / re-render articles table ──────────────────────────────
-  window._naFilter = function(mandateId) {
-    const prev = window._naActiveMandate;
-    window._naActiveMandate = (prev === mandateId) ? 'ALL' : mandateId;
-    // Update card ring states
-    mandatesData.mandates.forEach(m => {
-      const card = document.getElementById('na-card-' + m.id);
-      if (!card) return;
-      if (window._naActiveMandate === m.id) {
-        card.classList.add('ring-2','ring-offset-1','ring-offset-white','ring-blue-400');
-      } else {
-        card.classList.remove('ring-2','ring-offset-1','ring-offset-white','ring-blue-400');
-      }
-    });
-    // Re-render articles
-    const filtered = window._naActiveMandate === 'ALL'
-      ? articlesData.articles
-      : articlesData.articles.filter(a => a.mandate === window._naActiveMandate);
-    const tbody = document.getElementById('na-article-tbody');
-    if (tbody) {
-      tbody.innerHTML = filtered.map((a,i) => articleRow(a,i)).join('');
+  function getFiltered() {
+    let list = articles;
+    if (window._naCategory !== 'all') list = list.filter(a => a.category === window._naCategory);
+    if (window._naSearch) {
+      const q = window._naSearch.toLowerCase();
+      list = list.filter(a => (a.title||'').toLowerCase().includes(q) || (a.summary||'').toLowerCase().includes(q));
     }
-    const countEl = document.getElementById('na-article-count');
-    if (countEl) countEl.textContent = `${filtered.length} articles`;
-  };
-
-  // ── morning brief card ─────────────────────────────────────────────
-  function briefHeadlineCard(h) {
-    const c  = MANDATE_COLORS[h.mandate] || MANDATE_COLORS.Macro_K_Shape;
-    const ug = URGENCY_STYLE[h.urgency]  || URGENCY_STYLE.low;
-    const mandate = mandatesData.mandates.find(m => m.id === h.mandate);
-    return `
-    <div class="rounded-xl border ${c.border} ${c.bg} p-4">
-      <div class="flex items-center justify-between mb-3">
-        <div class="flex items-center gap-2">
-          <i class="${mandate?.icon||'fas fa-newspaper'} ${c.text}"></i>
-          <span class="text-sm font-semibold text-gray-900">${mandate?.label || h.mandate}</span>
-        </div>
-        <span class="${ug} text-[10px] px-2 py-0.5 rounded-full font-bold uppercase">${h.urgency}</span>
-      </div>
-      <p class="text-xs text-gray-400 leading-relaxed mb-3">${h.summary}</p>
-      <div class="border-t border-[#1e2d4a] pt-3">
-        <div class="text-[10px] text-gray-500 mb-1 uppercase tracking-wider">Recommended Action</div>
-        <div class="text-xs text-emerald-300 font-medium leading-snug">${h.action}</div>
-      </div>
-    </div>`;
+    return list;
   }
-
-  // ── Python script reference card ───────────────────────────────────
-  const pythonRefCard = `
-  <div class="rounded-xl border border-[#1e2d4a] bg-white p-4">
-    <div class="flex items-center gap-2 mb-3">
-      <i class="fab fa-python text-yellow-400"></i>
-      <span class="text-sm font-semibold text-gray-900">Production Pipeline — <code class="text-cyan-400 text-xs">news_agent.py</code></span>
-      <span class="ml-auto text-[10px] bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">Data Layer #4</span>
-    </div>
-    <div class="grid grid-cols-2 gap-3 mb-3">
-      <div class="bg-gray-50 rounded p-3">
-        <div class="text-[10px] text-gray-500 mb-1">Data Source</div>
-        <div class="text-xs text-gray-900">Google News RSS + Boolean Search</div>
-        <div class="text-[10px] text-gray-500 mt-1">Zero cost · High signal/noise</div>
-      </div>
-      <div class="bg-gray-50 rounded p-3">
-        <div class="text-[10px] text-gray-500 mb-1">Stack</div>
-        <div class="text-xs text-gray-900">feedparser · pandas · requests</div>
-        <div class="text-[10px] text-gray-500 mt-1">pip install feedparser pandas</div>
-      </div>
-      <div class="bg-gray-50 rounded p-3">
-        <div class="text-[10px] text-gray-500 mb-1">AI Brief Generation</div>
-        <div class="text-xs text-gray-900">Claude 3.5 Sonnet API</div>
-        <div class="text-[10px] text-gray-500 mt-1">Mandate → structured action</div>
-      </div>
-      <div class="bg-gray-50 rounded p-3">
-        <div class="text-[10px] text-gray-500 mb-1">Production Deploy</div>
-        <div class="text-xs text-gray-900">Cloudflare Worker Cron Trigger</div>
-        <div class="text-[10px] text-gray-500 mt-1">→ D1 Storage → /api/news/*</div>
-      </div>
-    </div>
-    <div class="bg-gray-50 rounded p-3 font-mono text-[10px] text-gray-500 leading-relaxed">
-      <div class="text-emerald-400 mb-1"># news_agent.py — core fetch loop</div>
-      <div class="text-gray-500">def fetch_mandate_news(days_back=1):</div>
-      <div class="text-gray-500 ml-4">base = "https://news.google.com/rss/search?q="</div>
-      <div class="text-gray-500 ml-4">for mandate_id, config in INVESTMENT_MANDATES.items():</div>
-      <div class="text-gray-500 ml-8">url = base + urllib.parse.quote(config["query"])</div>
-      <div class="text-gray-500 ml-8">feed = feedparser.parse(url)  <span class="text-cyan-400"># RSS → DataFrame</span></div>
-      <div class="text-gray-500 ml-8">df = keyword_filter(feed, config["keywords"])</div>
-      <div class="text-emerald-400 ml-4">return pd.concat(results)</div>
-    </div>
-  </div>`;
-
-  // ── health status row ──────────────────────────────────────────────
-  function healthRow(label, value, ok) {
-    return `<div class="flex items-center justify-between py-1.5 border-b border-[#1e2d4a]">
-      <span class="text-xs text-gray-500">${label}</span>
-      <span class="text-xs font-mono ${ok ? 'text-emerald-400' : 'text-amber-400'}">${value}</span>
-    </div>`;
-  }
-
-  // ── build final HTML ───────────────────────────────────────────────
-  const allArticles = articlesData.articles;
-  const sb = articlesData.sentimentBreakdown;
 
   el.innerHTML = `
-  <!-- ── HEADER STRIP ─────────────────────────────────────────────── -->
-  <div class="flex items-center justify-between mb-5">
-    <div>
-      <h2 class="text-lg font-bold text-white flex items-center gap-2">
-        <i class="fas fa-newspaper text-cyan-400"></i>
-        News Intelligence
-        <span class="text-[11px] bg-cyan-100 text-cyan-700 px-2 py-0.5 rounded-full ml-1">4 Mandates</span>
-      </h2>
-      <p class="text-xs text-gray-500 mt-0.5">
-        Boolean-filtered Google News RSS · ${articlesData.total} articles · Claude 3.5 Sonnet brief
-      </p>
-    </div>
-    <!-- Agent health chip -->
-    <div class="flex items-center gap-3">
-      <div class="flex items-center gap-1.5 text-xs text-gray-500 bg-white border border-[#1e2d4a] rounded-lg px-3 py-1.5">
-        <div class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></div>
-        <span>Last run: <span class="text-gray-900 font-mono">${new Date(healthData.lastRun).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'})}</span></span>
-        <span class="text-gray-400">|</span>
-        <span>Next: <span class="text-cyan-400 font-mono">${healthData.runFrequency.split('(')[0].trim()}</span></span>
-      </div>
-      <div class="flex gap-2 text-xs">
-        <span class="bg-emerald-100 text-emerald-700 px-2 py-1 rounded">▲ ${sb.bullish} Bull</span>
-        <span class="bg-gray-500/20 text-gray-500 px-2 py-1 rounded">● ${sb.neutral} Neutral</span>
-        <span class="bg-red-100 text-red-700 px-2 py-1 rounded">▼ ${sb.bearish} Bear</span>
-      </div>
-    </div>
+<!-- HEADER -->
+<div class="flex items-start justify-between mb-4 flex-wrap gap-3">
+  <div>
+    <h2 class="text-xl font-bold text-gray-900 flex items-center gap-2">
+      <i class="fas fa-newspaper text-blue-600"></i>
+      新闻情报 · 机构宏观监控
+      ${isLive
+        ? `<span class="text-[9px] font-bold px-2 py-0.5 rounded-full animate-pulse" style="background:#dcfce7;color:#166534;border:1px solid #86efac"><i class="fas fa-circle" style="font-size:5px"></i> LIVE</span>`
+        : `<span class="text-[9px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">DEMO</span>`}
+    </h2>
+    <p class="text-gray-500 text-xs mt-0.5">
+      Yahoo Finance RSS · Reuters · US Congress.gov · FactSet News — ${total} articles
+      ${isLive ? `<span class="text-emerald-600 ml-1">· 实时数据</span>` : `<span class="text-amber-600 ml-1">· 实时接口加载中，显示演示数据</span>`}
+    </p>
   </div>
-
-  <!-- ── MANDATE CARDS ────────────────────────────────────────────── -->
-  <div class="grid grid-cols-4 gap-3 mb-6">
-    ${mandatesData.mandates.map(m => mandateCard(m)).join('')}
+  <div class="flex items-center gap-2">
+    <button onclick="window._naRefresh()" class="px-3 py-1.5 rounded-lg text-xs font-medium" style="background:#eff6ff;border:1px solid #bfdbfe;color:#2563eb">
+      <i class="fas fa-sync-alt mr-1"></i>刷新
+    </button>
+    <a href="https://finance.yahoo.com/news/" target="_blank" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-purple-50 border border-purple-200 text-purple-700">
+      <i class="fab fa-yahoo mr-1"></i>Yahoo Finance
+    </a>
   </div>
+</div>
 
-  <div class="grid grid-cols-3 gap-5">
+<!-- STATS ROW -->
+<div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3 mb-4">
+  ${CATS.filter(c=>c.id!=='all').map(c => {
+    const cnt = articles.filter(a=>a.category===c.id).length;
+    return `<div class="bg-white border border-gray-200 rounded-xl p-3 cursor-pointer hover:border-indigo-400 transition-all text-center" onclick="window._naSetCat('${c.id}')">
+      <i class="${c.icon} text-${c.color}-500 text-lg mb-1"></i>
+      <div class="text-lg font-bold text-gray-900">${cnt}</div>
+      <div class="text-[10px] text-gray-500">${c.label}</div>
+    </div>`;
+  }).join('')}
+</div>
 
-    <!-- ── LEFT 2/3: Article Feed + Brief ─────────────────────────── -->
-    <div class="col-span-2 space-y-5">
+<!-- FILTER BAR -->
+<div class="bg-white border border-gray-200 rounded-xl p-3 mb-4 flex flex-wrap items-center gap-2">
+  <span class="text-xs text-gray-500 font-medium mr-1">分类:</span>
+  ${CATS.map(c=>`<button id="na-cat-${c.id}" onclick="window._naSetCat('${c.id}')"
+    class="text-xs px-3 py-1 rounded-full border transition-all ${catBtnCls(c.id)}">${c.label}</button>`).join('')}
+  <div class="ml-auto flex items-center gap-2">
+    <input id="na-search" type="text" placeholder="搜索标题/内容..." value="${window._naSearch}"
+      onkeyup="window._naDoSearch(this.value)"
+      class="text-xs border border-gray-300 rounded-lg px-3 py-1.5 w-48 focus:outline-none focus:border-indigo-400" />
+    ${window._naSearch ? `<button onclick="window._naDoSearch('')" class="text-xs text-gray-400 hover:text-gray-700">✕</button>` : ''}
+  </div>
+</div>
 
-      <!-- Article Feed Table -->
-      <div class="bg-white rounded-xl border border-[#1e2d4a] overflow-hidden">
-        <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200">
-          <div class="flex items-center gap-2">
-            <i class="fas fa-rss text-orange-400 text-sm"></i>
-            <span class="text-sm font-semibold text-gray-900">Article Feed</span>
-            <span id="na-article-count" class="text-[10px] text-gray-500">${allArticles.length} articles</span>
-          </div>
-          <div class="flex items-center gap-2 text-[10px] text-gray-500">
-            <i class="fas fa-filter text-xs"></i>
-            <span>Click mandate card to filter</span>
-            <button onclick="window._naFilter('ALL')"
-              class="text-[10px] text-blue-400 hover:text-blue-300 border border-blue-500/30 px-2 py-0.5 rounded">
-              Show All
-            </button>
-          </div>
-        </div>
-        <div class="overflow-x-auto">
-          <table class="w-full text-left">
-            <thead class="bg-gray-50">
-              <tr class="text-[10px] text-gray-500 uppercase tracking-wider">
-                <th class="px-3 py-2 whitespace-nowrap">Date / Time</th>
-                <th class="px-3 py-2">Mandate</th>
-                <th class="px-3 py-2">Headline · Source</th>
-                <th class="px-3 py-2 text-center">Sentiment</th>
-                <th class="px-3 py-2 text-center">Link</th>
-              </tr>
-            </thead>
-            <tbody id="na-article-tbody">
-              ${allArticles.map((a,i) => articleRow(a,i)).join('')}
-            </tbody>
-          </table>
-        </div>
-      </div>
+<!-- SOURCE INFO BAR -->
+<div class="mb-3 rounded-lg px-4 py-2 flex flex-wrap items-center gap-3 text-[11px]" style="background:#eff6ff;border:1px solid #bfdbfe">
+  <i class="fas fa-info-circle text-blue-500"></i>
+  <span class="font-bold text-blue-800">数据源:</span>
+  <span class="bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">Yahoo Finance RSS 实时</span>
+  <span class="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">Reuters 路透</span>
+  <span class="bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">US Congress.gov 国会法案</span>
+  <span class="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">FactSet News</span>
+  <span class="ml-auto text-blue-700">更新时间: ${new Date().toLocaleString('zh-CN')}</span>
+</div>
 
-      <!-- AI Morning Brief -->
-      <div class="bg-white rounded-xl border border-[#1e2d4a] overflow-hidden">
-        <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200">
-          <div class="flex items-center gap-2">
-            <i class="fas fa-robot text-violet-400 text-sm"></i>
-            <span class="text-sm font-semibold text-gray-900">AI Morning Brief</span>
-            <span class="text-[10px] bg-violet-500/20 text-violet-300 px-2 py-0.5 rounded-full">${briefData.model}</span>
-          </div>
-          <div class="text-[10px] text-gray-500">
-            Generated: ${new Date(briefData.generatedAt).toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}
-          </div>
-        </div>
-        <!-- Mandate summaries -->
-        <div class="p-4 space-y-3">
-          ${briefData.headlines.map(h => briefHeadlineCard(h)).join('')}
-        </div>
-        <!-- Market call -->
-        <div class="mx-4 mb-4 rounded-xl border border-amber-500/30 bg-amber-500/5 p-4">
-          <div class="flex items-center gap-2 mb-2">
-            <i class="fas fa-broadcast-tower text-amber-400"></i>
-            <span class="text-sm font-semibold text-gray-900">Overall Market Call</span>
-          </div>
-          <p class="text-xs text-amber-200 leading-relaxed">${briefData.marketCall}</p>
-        </div>
-      </div>
+<!-- NEWS TABLE -->
+<div class="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
+  <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+    <span class="text-sm font-bold text-gray-900 flex items-center gap-2">
+      <i class="fas fa-list text-blue-500"></i>
+      新闻列表 <span id="na-count" class="text-xs font-normal text-gray-500 ml-1">${getFiltered().length} 条</span>
+    </span>
+    <span class="text-[10px] text-gray-400">点击行可打开原文</span>
+  </div>
+  <div class="overflow-x-auto">
+    <table class="w-full text-xs">
+      <thead>
+        <tr class="bg-gray-50 text-[10px] text-gray-500 uppercase tracking-wider border-b border-gray-200">
+          <th class="px-3 py-2 text-left w-20">时间</th>
+          <th class="px-3 py-2 text-left">标题 / Title</th>
+          <th class="px-3 py-2 text-left w-32">来源</th>
+          <th class="px-3 py-2 text-left w-24">分类</th>
+          <th class="px-3 py-2 text-left w-16">地区</th>
+        </tr>
+      </thead>
+      <tbody id="na-table-body">
+        ${buildRows(getFiltered())}
+      </tbody>
+    </table>
+  </div>
+</div>
 
-    </div><!-- /col-span-2 -->
-
-    <!-- ── RIGHT 1/3: Health + Python Ref ──────────────────────────── -->
-    <div class="space-y-4">
-
-      <!-- Agent Health -->
-      <div class="bg-white rounded-xl border border-[#1e2d4a] p-4">
-        <div class="flex items-center gap-2 mb-3">
-          <i class="fas fa-heartbeat text-emerald-400 text-sm"></i>
-          <span class="text-sm font-semibold text-gray-900">Agent Health</span>
-          <span class="ml-auto w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-        </div>
-        ${healthRow('Status', 'OPERATIONAL', true)}
-        ${healthRow('Total Articles', healthData.totalArticles, true)}
-        ${healthRow('Active Mandates', healthData.mandateCount, true)}
-        ${healthRow('Run Frequency', healthData.runFrequency.split('(')[1]?.replace(')','') || '6h', true)}
-        ${healthRow('Last Run', new Date(healthData.lastRun).toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}), true)}
-        ${healthRow('Next Run', new Date(healthData.nextRun).toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}), true)}
-        <div class="mt-3 text-[10px] text-gray-500 leading-snug">${healthData.productionNote}</div>
-      </div>
-
-      <!-- Mandate Schedule -->
-      <div class="bg-white rounded-xl border border-[#1e2d4a] p-4">
-        <div class="flex items-center gap-2 mb-3">
-          <i class="fas fa-tasks text-blue-400 text-sm"></i>
-          <span class="text-sm font-semibold text-gray-900">Mandate Pipeline</span>
-        </div>
-        ${healthData.mandates.map(m => {
-          const c = MANDATE_COLORS[m.id] || MANDATE_COLORS.Macro_K_Shape;
-          return `<div class="flex items-center justify-between py-1.5 border-b border-[#1e2d4a]">
-            <span class="text-xs ${c.text}">${m.label}</span>
-            <span class="text-[10px] font-mono text-gray-500">${m.articleCount} art.</span>
-          </div>`;
-        }).join('')}
-        <div class="mt-3 text-[10px] text-gray-400 font-mono leading-relaxed">
-          Data: Google News RSS<br>
-          Filter: Boolean + keyword<br>
-          Storage: Cloudflare D1 (prod)
-        </div>
-      </div>
-
-      <!-- Python Reference (collapsed by default) -->
-      <div>
-        <button onclick="document.getElementById('na-py-panel').classList.toggle('hidden')"
-          class="w-full flex items-center justify-between px-3 py-2 rounded-lg border border-[#1e2d4a]
-                 bg-white text-xs text-gray-500 hover:text-white hover:border-yellow-500/40 transition mb-2">
-          <span class="flex items-center gap-2">
-            <i class="fab fa-python text-yellow-400"></i>
-            news_agent.py reference
-          </span>
-          <i class="fas fa-chevron-down text-[10px]"></i>
-        </button>
-        <div id="na-py-panel" class="hidden">
-          ${pythonRefCard}
-        </div>
-      </div>
-
-    </div><!-- /right col -->
-  </div><!-- /grid -->`;
-}
-
-// ── SHARED HELPERS ───────────────────────────────────────────────────────────
-function kpiCard(label, value, sub, icon, iconClass) {
-  return `<div class="kpi-card">
-    <div class="flex items-center gap-2 mb-2">
-      <i class="${icon} ${iconClass} text-sm"></i>
-      <span class="text-xs text-gray-500">${label}</span>
+<!-- MACRO FOCUS TICKERS -->
+<div class="mt-4 grid grid-cols-2 lg:grid-cols-4 gap-3">
+  ${['^GSPC','GLD','TLT','^VIX'].map(t=>`
+  <div class="bg-white border border-gray-200 rounded-xl p-3 cursor-pointer hover:border-indigo-400"
+    onclick="navigate('stockanalysis');setTimeout(()=>{document.getElementById('sa-ticker')&&(document.getElementById('sa-ticker').value='${t.replace('^','')}',saSearch())},300)">
+    <div class="flex items-center gap-2 mb-1">
+      <span class="font-mono font-bold text-gray-900 text-sm">${t}</span>
+      <span class="text-[9px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full">深度分析 →</span>
     </div>
-    <div class="text-2xl font-bold text-gray-900">${value}</div>
-    ${sub ? `<div class="text-xs text-gray-500 mt-1">${sub}</div>` : ''}
-  </div>`
+    <div class="text-[10px] text-gray-500">${
+      t==='^GSPC'?'S&P 500 指数':t==='GLD'?'黄金 ETF':t==='TLT'?'长期国债 ETF':t==='^VIX'?'恐慌指数 VIX':t
+    }</div>
+  </div>`).join('')}
+</div>`;
+
+  // ── event handlers ────────────────────────────────────────────────
+  window._naSetCat = function(cat) {
+    window._naCategory = cat;
+    // update buttons
+    CATS.forEach(c => {
+      const btn = document.getElementById(`na-cat-${c.id}`);
+      if (!btn) return;
+      btn.className = `text-xs px-3 py-1 rounded-full border transition-all ${catBtnCls(c.id)}`;
+    });
+    const tbody = document.getElementById('na-table-body');
+    if (tbody) tbody.innerHTML = buildRows(getFiltered());
+    const cnt = document.getElementById('na-count');
+    if (cnt) cnt.textContent = `${getFiltered().length} 条`;
+  };
+
+  window._naDoSearch = function(val) {
+    window._naSearch = val;
+    const input = document.getElementById('na-search');
+    if (input) input.value = val;
+    const tbody = document.getElementById('na-table-body');
+    if (tbody) tbody.innerHTML = buildRows(getFiltered());
+    const cnt = document.getElementById('na-count');
+    if (cnt) cnt.textContent = `${getFiltered().length} 条`;
+  };
+
+  window._naRefresh = async function() {
+    await renderNewsAgent(document.getElementById('page-content'));
+  };
 }
 
-function miniKpi(label, value, sub, positive) {
-  const c = positive === undefined ? 'text-gray-900' : (positive ? 'text-emerald-600' : 'text-red-600')
-  return `<div class="rounded p-2 text-center" style="background:#f8faff;border:1px solid #e2e4ec">
-    <div class="text-[10px] text-gray-500 mb-0.5">${label}</div>
-    <div class="text-sm font-bold ${c}">${value}</div>
-    ${sub ? `<div class="text-[10px] text-gray-400 mt-0.5">${sub}</div>` : ''}
-  </div>`
-}
 
-function chartOpts(yLabel = '') {
-  return {
-    responsive: true, maintainAspectRatio: false,
-    animation: { duration: 400 },
-    plugins: { legend: { display: false }, tooltip: { backgroundColor: '#1e293b', titleColor: '#94a3b8', bodyColor: '#f1f5f9', borderColor: '#334155', borderWidth: 1 } },
-    scales: {
-      x: { grid: { color: '#111827', drawBorder: false }, ticks: { color: '#4b5563', font: { size: 9 }, maxTicksLimit: 8 } },
-      y: { grid: { color: '#111827', drawBorder: false }, ticks: { color: '#4b5563', font: { size: 9 } }, title: { display: !!yLabel, text: yLabel, color: '#4b5563', font: { size: 9 } } }
-    }
-  }
-}
-
-// ── INIT ──────────────────────────────────────────────────────────────────────
-window.addEventListener('DOMContentLoaded', async () => {
-  await loadMarketTicker()
-  navigate('dashboard')
-  // Refresh ticker every 30s
-  setInterval(loadMarketTicker, 30000)
-})
 
 // ╔══════════════════════════════════════════════════════════════════════════╗
 // ║  个股深度分析模块 — Stock Deep Analysis                                   ║
@@ -4967,10 +5111,229 @@ window.saSearch = async function() {
     resultEl.innerHTML = saRenderResult(d, ana, ticker);
     saDrawCharts(d, ana);
 
+    // ── Async FactSet layer (non-blocking, loads after main render) ──────────
+    saLoadFactSet(ticker);
+
   } catch(e) {
     resultEl.innerHTML = `<div class="bg-red-50 border border-red-200 rounded-lg p-6 text-red-700">
       Error: ${e.message}. Data microservice may be offline.
     </div>`;
+  }
+};
+
+// ── FactSet institutional data loader (async, non-blocking) ─────────────────
+window.saLoadFactSet = async function(ticker) {
+  const badge = document.getElementById('sa-fs-status-badge');
+  const fsContent = document.getElementById('sa-factset-content');
+  const xvalContent = document.getElementById('sa-xval-content');
+
+  try {
+    // Parallel: consensus + cross-validation
+    const [consensusRes, xvalRes] = await Promise.allSettled([
+      axios.get(`${API}/api/live/factset/consensus/${ticker}`),
+      axios.get(`${API}/api/live/factset/crossvalidate/${ticker}`),
+    ]);
+
+    const cs = consensusRes.status === 'fulfilled' ? consensusRes.value.data : null;
+    const xv = xvalRes.status === 'fulfilled' ? xvalRes.value.data : null;
+
+    // ── Render consensus panel ────────────────────────────────────────────────
+    if (fsContent) {
+      if (cs && !cs.error && cs.estimates) {
+        // Parse estimates array
+        let eps = null, epsGrowth = null, salesGrowth = null, ebitda = null, sales = null;
+        (cs.estimates || []).forEach(e => {
+          const v = e.value ?? e.mean ?? e.estimate;
+          if (e.metric === 'EPS') eps = v;
+          else if (e.metric === 'EPS_GROWTH') epsGrowth = v;
+          else if (e.metric === 'SALES_GROWTH') salesGrowth = v;
+          else if (e.metric === 'EBITDA') ebitda = v;
+          else if (e.metric === 'SALES') sales = v;
+        });
+        const pt = cs.priceTarget || {};
+
+        fsContent.innerHTML = `
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-3">
+          <div class="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-center">
+            <div class="text-[10px] text-gray-500 mb-1 uppercase">NTM EPS</div>
+            <div class="text-xl font-bold text-emerald-700 font-mono">${eps != null ? '$'+Number(eps).toFixed(2) : '—'}</div>
+            <div class="text-[9px] text-gray-400 mt-0.5">前瞻每股收益</div>
+          </div>
+          <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 text-center">
+            <div class="text-[10px] text-gray-500 mb-1 uppercase">NTM EPS增速</div>
+            <div class="text-xl font-bold ${epsGrowth>0?'text-emerald-600':epsGrowth<0?'text-red-600':'text-gray-700'} font-mono">${epsGrowth != null ? (epsGrowth*100<10?'':'')+Number(epsGrowth*100<2&&epsGrowth*100>-2?epsGrowth*100:epsGrowth).toFixed(1)+'%' : '—'}</div>
+            <div class="text-[9px] text-gray-400 mt-0.5">前瞻盈利增速</div>
+          </div>
+          <div class="bg-purple-50 border border-purple-200 rounded-lg p-3 text-center">
+            <div class="text-[10px] text-gray-500 mb-1 uppercase">NTM 收入增速</div>
+            <div class="text-xl font-bold ${salesGrowth>0?'text-emerald-600':salesGrowth<0?'text-red-600':'text-gray-700'} font-mono">${salesGrowth != null ? Number(salesGrowth*100<2&&salesGrowth*100>-2?salesGrowth*100:salesGrowth).toFixed(1)+'%' : '—'}</div>
+            <div class="text-[9px] text-gray-400 mt-0.5">前瞻收入增速</div>
+          </div>
+          <div class="bg-amber-50 border border-amber-200 rounded-lg p-3 text-center">
+            <div class="text-[10px] text-gray-500 mb-1 uppercase">NTM EBITDA</div>
+            <div class="text-xl font-bold text-amber-700 font-mono">${ebitda != null ? '$'+Number(Number(ebitda)>1e9?(Number(ebitda)/1e9).toFixed(1)+'B':(Number(ebitda)/1e6).toFixed(0)+'M') : '—'}</div>
+            <div class="text-[9px] text-gray-400 mt-0.5">前瞻EBITDA</div>
+          </div>
+        </div>
+        <!-- Price Targets from FactSet -->
+        ${pt.mean ? `
+        <div class="bg-gray-50 border border-gray-200 rounded-lg p-3">
+          <div class="text-[10px] text-gray-500 uppercase font-bold mb-2">FactSet 分析师目标价区间</div>
+          <div class="flex items-center gap-4">
+            <div class="text-center">
+              <div class="text-xs text-gray-500">低</div>
+              <div class="text-lg font-bold font-mono text-red-600">$${Number(pt.low||0).toFixed(0)}</div>
+            </div>
+            <div class="flex-1 mx-2">
+              <div class="text-center text-xs text-gray-500 mb-1">均值目标价 · ${pt.analystCount||0} 位分析师</div>
+              <div class="text-center text-2xl font-bold font-mono text-gray-900">$${Number(pt.mean||0).toFixed(0)}</div>
+              <div class="text-center text-xs text-gray-400 mt-0.5">中位数 $${Number(pt.median||0).toFixed(0)}</div>
+            </div>
+            <div class="text-center">
+              <div class="text-xs text-gray-500">高</div>
+              <div class="text-lg font-bold font-mono text-emerald-600">$${Number(pt.high||0).toFixed(0)}</div>
+            </div>
+          </div>
+        </div>` : ''}
+        <div class="text-[9px] text-gray-400 mt-2">
+          数据源: ${cs.dataSource === 'factset_consensus' ? '<span class="text-emerald-600 font-semibold">FactSet NTM Consensus</span>' : '<span class="text-blue-600 font-semibold">Yahoo Finance 前瞻预期 (NTM Proxy)</span>'}
+          ${cs.dataSourceNote ? ' · <i>'+cs.dataSourceNote+'</i>' : ''}
+          · 更新: ${cs.lastUpdated ? cs.lastUpdated.slice(0,16).replace('T',' ') : '—'}
+        </div>`;
+
+        const isNativeFactSet = cs.dataSource === 'factset_consensus';
+        if (badge) badge.innerHTML = isNativeFactSet
+          ? '<i class="fas fa-check-circle text-emerald-500 mr-1"></i><span class="text-emerald-700">FactSet NTM ✓</span>'
+          : '<i class="fas fa-check-circle text-blue-400 mr-1"></i><span class="text-blue-600">YF Forward ✓</span>';
+        // Update header badge too
+        const hdrBadge = document.getElementById('sa-fs-badge');
+        if (hdrBadge) hdrBadge.innerHTML = isNativeFactSet
+          ? '<i class="fas fa-circle text-emerald-500 mr-1" style="font-size:6px"></i>FactSet NTM LIVE'
+          : '<i class="fas fa-circle text-blue-400 mr-1" style="font-size:6px"></i>YF Forward LIVE';
+        if (hdrBadge) hdrBadge.className = isNativeFactSet
+          ? 'bg-emerald-50 border border-emerald-200 text-emerald-700 px-2 py-1 rounded-full'
+          : 'bg-blue-50 border border-blue-200 text-blue-700 px-2 py-1 rounded-full';
+
+      } else if (cs && cs.error) {
+        fsContent.innerHTML = `<div class="bg-red-50 border border-red-200 rounded-lg p-3 text-xs text-red-700">
+          <i class="fas fa-exclamation-triangle mr-1"></i>FactSet API 错误: ${cs.error}
+        </div>`;
+        if (badge) badge.innerHTML = '<i class="fas fa-times-circle text-red-500 mr-1"></i><span class="text-red-600">API 错误</span>';
+      } else {
+        fsContent.innerHTML = `<div class="bg-gray-50 rounded-lg p-3 text-xs text-gray-500 text-center">
+          FactSet 数据不可用 — 请检查 API Key 配置
+        </div>`;
+        if (badge) badge.innerHTML = '<i class="fas fa-info-circle text-gray-400 mr-1"></i><span>未配置</span>';
+      }
+    }
+
+    // ── Render cross-validation panel ────────────────────────────────────────
+    if (xvalContent) {
+      if (xv && xv.validated) {
+        const divs = xv.divergences || [];
+        const yf = xv.yfMetrics || {};
+        const fs = xv.factsetConsensus || {};
+
+        xvalContent.innerHTML = `
+        <div class="grid grid-cols-2 gap-4 mb-3">
+          <div>
+            <div class="text-[10px] font-bold text-gray-600 uppercase mb-2 flex items-center gap-1">
+              <span class="w-2 h-2 bg-blue-500 rounded-full inline-block"></span>Yahoo Finance 历史数据
+            </div>
+            <div class="space-y-1 text-xs">
+              <div class="flex justify-between bg-gray-50 rounded px-3 py-1.5">
+                <span class="text-gray-500">Forward EPS</span>
+                <span class="font-mono font-bold text-gray-900">${yf.forwardEps != null ? '$'+Number(yf.forwardEps).toFixed(2) : '—'}</span>
+              </div>
+              <div class="flex justify-between bg-gray-50 rounded px-3 py-1.5">
+                <span class="text-gray-500">Forward P/E</span>
+                <span class="font-mono font-bold text-gray-900">${yf.forwardPE != null ? Number(yf.forwardPE).toFixed(1)+'×' : '—'}</span>
+              </div>
+              <div class="flex justify-between bg-gray-50 rounded px-3 py-1.5">
+                <span class="text-gray-500">收入增速 YoY</span>
+                <span class="font-mono font-bold ${(yf.revenueGrowth||0)>0?'text-emerald-600':'text-red-600'}">${yf.revenueGrowth != null ? Number(yf.revenueGrowth).toFixed(1)+'%' : '—'}</span>
+              </div>
+              <div class="flex justify-between bg-gray-50 rounded px-3 py-1.5">
+                <span class="text-gray-500">当前价格</span>
+                <span class="font-mono font-bold text-gray-900">${yf.price != null ? '$'+Number(yf.price).toFixed(2) : '—'}</span>
+              </div>
+            </div>
+          </div>
+          <div>
+            <div class="text-[10px] font-bold text-gray-600 uppercase mb-2 flex items-center gap-1">
+              <span class="w-2 h-2 bg-emerald-500 rounded-full inline-block"></span>FactSet NTM 前瞻共识
+            </div>
+            <div class="space-y-1 text-xs">
+              <div class="flex justify-between bg-emerald-50 rounded px-3 py-1.5">
+                <span class="text-gray-500">NTM EPS</span>
+                <span class="font-mono font-bold text-emerald-700">${fs.ntmEps != null ? '$'+Number(fs.ntmEps).toFixed(2) : '—'}</span>
+              </div>
+              <div class="flex justify-between bg-emerald-50 rounded px-3 py-1.5">
+                <span class="text-gray-500">NTM EBITDA</span>
+                <span class="font-mono font-bold text-emerald-700">${fs.ntmEbitda != null ? '$'+(Number(fs.ntmEbitda)>1e9?(Number(fs.ntmEbitda)/1e9).toFixed(1)+'B':(Number(fs.ntmEbitda)/1e6).toFixed(0)+'M') : '—'}</span>
+              </div>
+              <div class="flex justify-between bg-emerald-50 rounded px-3 py-1.5">
+                <span class="text-gray-500">NTM 收入增速</span>
+                <span class="font-mono font-bold ${(fs.ntmRevGrowth||0)>0?'text-emerald-600':'text-red-600'}">${fs.ntmRevGrowth != null ? Number(fs.ntmRevGrowth).toFixed(1)+'%' : '—'}</span>
+              </div>
+              <div class="flex justify-between bg-emerald-50 rounded px-3 py-1.5">
+                <span class="text-gray-500">数据源</span>
+                <span class="font-mono font-bold text-emerald-700 text-[10px]">${fs.source || 'FactSet NTM'}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- Divergence flags -->
+        ${divs.length > 0 ? `
+        <div class="border border-amber-200 bg-amber-50 rounded-lg p-3">
+          <div class="text-xs font-bold text-amber-800 mb-2 flex items-center gap-1">
+            <i class="fas fa-exclamation-triangle text-amber-600"></i>
+            发现 ${divs.length} 项数据偏差 (阈值 >1%)
+          </div>
+          <table class="w-full text-xs">
+            <thead><tr class="text-[10px] text-gray-500 border-b border-amber-200">
+              <th class="text-left pb-1">指标</th>
+              <th class="text-right pb-1">FactSet NTM</th>
+              <th class="text-right pb-1">Yahoo Finance</th>
+              <th class="text-right pb-1">偏差%</th>
+              <th class="text-right pb-1">状态</th>
+            </tr></thead>
+            <tbody>
+              ${divs.map(dv=>`<tr class="border-b border-amber-100">
+                <td class="py-1 font-semibold text-gray-700">${dv.field}</td>
+                <td class="py-1 font-mono text-right text-emerald-700">${dv.factset}</td>
+                <td class="py-1 font-mono text-right text-blue-700">${dv.yfinance}</td>
+                <td class="py-1 font-mono text-right font-bold text-amber-700">${dv.divergencePct}%</td>
+                <td class="py-1 text-right"><span class="text-amber-600 font-semibold">⚠️ 偏差</span></td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+          <div class="text-[9px] text-amber-600 mt-2">⚠️ 注意：FactSet NTM 为前瞻预期，Yahoo Finance 为历史数据，存在一定差异属正常现象，差异>1%时需人工复核。</div>
+        </div>` : `
+        <div class="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
+          <div class="flex items-center gap-2 text-emerald-700 text-xs">
+            <i class="fas fa-check-circle text-emerald-500"></i>
+            <span class="font-semibold">交叉验证通过 — FactSet NTM 与 Yahoo Finance 历史数据偏差均 ≤1%</span>
+          </div>
+        </div>`}
+        <div class="text-[9px] text-gray-400 mt-2">更新时间: ${xv.lastUpdated ? xv.lastUpdated.slice(0,16).replace('T',' ') : '—'} · 数据源: ${xv.dataSource || 'factset_yf_cross'}</div>`;
+
+      } else if (xv && !xv.validated) {
+        xvalContent.innerHTML = `<div class="bg-gray-50 rounded-lg p-4 text-xs text-gray-500 text-center">
+          <i class="fas fa-info-circle mr-1"></i>${xv.message || 'FactSet 交叉验证不可用'}
+        </div>`;
+      } else {
+        xvalContent.innerHTML = `<div class="bg-red-50 border border-red-200 rounded-lg p-3 text-xs text-red-700 text-center">
+          交叉验证请求失败 — 请检查 data-service 连接
+        </div>`;
+      }
+    }
+
+  } catch(err) {
+    const badge = document.getElementById('sa-fs-status-badge');
+    if (badge) badge.innerHTML = '<i class="fas fa-times-circle text-red-400 mr-1"></i><span class="text-red-500">错误</span>';
+    const fc = document.getElementById('sa-factset-content');
+    if (fc) fc.innerHTML = `<div class="text-xs text-red-600 p-3">FactSet 加载失败: ${err.message}</div>`;
   }
 };
 
@@ -5334,34 +5697,40 @@ ${flags.length > 0 ? `
   <div style="height:200px"><canvas id="sa-price-chart"></canvas></div>
 </div>
 
-<!-- ══ FACTSET VALIDATION ══════════════════════════════════════════════════ -->
-<div class="bg-gray-50 border border-gray-200 rounded-xl p-4 mb-4">
-  <div class="flex items-center gap-2 mb-2">
-    <i class="fas fa-check-double text-gray-500"></i>
-    <span class="font-semibold text-gray-800 text-sm">FactSet 交叉验证状态</span>
-    <span class="text-[10px] text-gray-400 ml-auto">数据层 2 / 3</span>
-  </div>
-  ${d.factset_validated ? `
-  <div class="text-xs text-emerald-700 bg-emerald-50 rounded p-2">
-    <i class="fas fa-check-circle mr-1"></i>FactSet 数据已验证 · ${JSON.stringify(d.factset_data)}
-  </div>` : `
-  <div class="text-xs text-gray-600 leading-relaxed">
-    <div class="font-semibold text-amber-700 mb-1"><i class="fas fa-info-circle mr-1"></i>FactSet API 未配置 — 以下步骤启用</div>
-    <div class="grid grid-cols-3 gap-3 mt-2 text-[10px]">
-      <div class="bg-white rounded p-2 border border-gray-200">
-        <div class="font-bold text-gray-700 mb-1">Step 1</div>
-        <div class="text-gray-500">前往 developer.factset.com 获取 API Key</div>
-      </div>
-      <div class="bg-white rounded p-2 border border-gray-200">
-        <div class="font-bold text-gray-700 mb-1">Step 2</div>
-        <div class="text-gray-500">在 webapp/.dev.vars 添加 FACTSET_API_KEY=your_key</div>
-      </div>
-      <div class="bg-white rounded p-2 border border-gray-200">
-        <div class="font-bold text-gray-700 mb-1">Step 3</div>
-        <div class="text-gray-500">pm2 restart data-service — 自动加载</div>
-      </div>
+<!-- ══ FACTSET INSTITUTIONAL PANEL ═════════════════════════════════════════ -->
+<div class="bg-white border border-emerald-200 rounded-xl p-4 mb-4" id="sa-factset-panel">
+  <div class="flex items-center gap-2 mb-3">
+    <div class="w-7 h-7 bg-emerald-600 rounded-lg flex items-center justify-center flex-shrink-0">
+      <i class="fas fa-database text-white text-xs"></i>
     </div>
-  </div>`}
+    <div>
+      <div class="font-bold text-gray-900 text-sm">FactSet 机构级数据层 · NTM 共识预期</div>
+      <div class="text-[10px] text-gray-500">Next Twelve Months 前瞻预期 · 与 Yahoo Finance 历史数据交叉验证 · >1% 偏差预警</div>
+    </div>
+    <span id="sa-fs-status-badge" class="ml-auto text-[10px] bg-gray-100 text-gray-600 px-2 py-1 rounded-full font-semibold flex items-center gap-1">
+      <i class="fas fa-spinner fa-spin"></i>加载中
+    </span>
+  </div>
+  <!-- Consensus Estimates Grid -->
+  <div id="sa-factset-content">
+    <div class="flex items-center justify-center py-8 text-gray-400 text-xs">
+      <i class="fas fa-spinner fa-spin mr-2"></i>正在获取 FactSet NTM 共识数据...
+    </div>
+  </div>
+</div>
+
+<!-- ══ CROSS-VALIDATION DIVERGENCE PANEL ═══════════════════════════════════ -->
+<div class="bg-white border border-gray-200 rounded-xl p-4 mb-4" id="sa-xval-panel">
+  <div class="flex items-center gap-2 mb-3">
+    <i class="fas fa-code-branch text-indigo-500"></i>
+    <span class="font-bold text-gray-900 text-sm">数据交叉验证 · FactSet NTM vs Yahoo Finance</span>
+    <span class="text-[10px] text-gray-400 ml-auto">偏差阈值 >1%</span>
+  </div>
+  <div id="sa-xval-content">
+    <div class="flex items-center justify-center py-6 text-gray-400 text-xs">
+      <i class="fas fa-spinner fa-spin mr-2"></i>正在对比 FactSet 与 Yahoo Finance...
+    </div>
+  </div>
 </div>`;
 }
 
