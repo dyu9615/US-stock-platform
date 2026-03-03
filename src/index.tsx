@@ -9,7 +9,9 @@ import {
   SP500_UNIVERSE, recentFilings, earningsUpdates,
   marketOverview, factorResearchPapers, aiExtractedStrategies,
   FIVE_FACTOR_WEIGHTS, HARD_FILTER,
-  mlModels, mlSignals, trainingRuns, regimeData
+  mlModels, mlSignals, trainingRuns, regimeData,
+  btdCoreResult, contrarianResult, mlEnhancedResult, nvdaEarningsResult,
+  btdStrategySummary, dipEvents, mlDipModel, spyBars
 } from './data/usMarketData'
 
 const app = new Hono()
@@ -130,11 +132,88 @@ app.get('/api/trades', (c) => {
   return c.json(filtered)
 })
 
-// ── API: Backtest ───────────────────────────────────────────────────────────
+// ── API: Backtest (legacy mock) ────────────────────────────────────────────
 app.get('/api/backtest', (c) => c.json(backtestResults))
 app.get('/api/backtest/:id', (c) => {
   const bt = backtestResults.find(b => b.id === c.req.param('id'))
   return bt ? c.json(bt) : c.json({ error: 'Not found' }, 404)
+})
+
+// ── API: BTD Engine — Buy-the-Dip & Contrarian ─────────────────────────────
+// Summary list of all 4 strategies
+app.get('/api/btd/summary', (c) => c.json({
+  total: btdStrategySummary.length,
+  strategies: btdStrategySummary,
+  dataSource: 'Synthetic 10Y SPY series (GBM + regime shocks + earnings jumps)',
+  antiLookAhead: 'All signals use t-1 indicators; entries filled at t+1 open',
+  antiSurvivorship: 'Single ETF instrument (SPY) — no delisting bias',
+  biasWarnings: [
+    'Synthetic data approximates but does not replicate actual SPY returns',
+    'Transaction costs: 10bps commission + 5bps slippage (realistic for retail)',
+    'No short selling implemented in current version',
+    'ML score is edge-runtime RF proxy — production model requires scikit-learn server',
+  ],
+}))
+
+// Individual full backtest result (includes navCurve + trades)
+app.get('/api/btd/result/:id', (c) => {
+  const id = c.req.param('id')
+  const all = [btdCoreResult, contrarianResult, mlEnhancedResult, nvdaEarningsResult]
+  const result = all.find(r => r.id === id || r.strategyId === id)
+  if (!result) return c.json({ error: 'Backtest not found', available: all.map(r => r.id) }, 404)
+  // Downsample navCurve to max 200 points for API response size
+  const step = Math.max(1, Math.floor(result.navCurve.length / 200))
+  return c.json({
+    ...result,
+    navCurve: result.navCurve.filter((_, i) => i % step === 0),
+  })
+})
+
+// Compare all strategies side-by-side
+app.get('/api/btd/compare', (c) => {
+  const all = [btdCoreResult, contrarianResult, mlEnhancedResult, nvdaEarningsResult]
+  return c.json({
+    strategies: all.map(r => ({
+      id: r.id, name: r.strategyName,
+      ...r.metrics,
+    })),
+    benchmark: {
+      name: 'SPY Buy & Hold',
+      totalReturn: btdCoreResult.metrics.benchmarkReturn,
+      annualReturn: +(Math.pow(1 + btdCoreResult.metrics.benchmarkReturn / 100, 1 / 10) - 1).toFixed(4) * 100,
+    },
+  })
+})
+
+// Dip event catalog (ML labeling dataset)
+app.get('/api/btd/dip-events', (c) => {
+  const limit  = parseInt(c.req.query('limit')  || '50')
+  const trigger = c.req.query('trigger') || ''
+  let events = [...dipEvents]
+  if (trigger) events = events.filter(e => e.triggerType === trigger)
+  // Sort by most recent
+  events.sort((a, b) => b.date.localeCompare(a.date))
+  return c.json({
+    total: events.length,
+    reboundRate: +(events.filter(e => e.reboundWithin5d).length / events.length * 100).toFixed(1),
+    mlSignalRate: +(events.filter(e => e.signalFired).length / events.length * 100).toFixed(1),
+    events: events.slice(0, limit),
+  })
+})
+
+// ML model card for dip prediction
+app.get('/api/btd/ml-model', (c) => c.json(mlDipModel))
+
+// SPY price series (for candlestick / indicator chart)
+app.get('/api/btd/spy-bars', (c) => {
+  const limit = parseInt(c.req.query('limit') || '252')  // default 1Y
+  const bars = spyBars.slice(-limit).map(b => ({
+    date: b.date, open: b.open, high: b.high, low: b.low, close: b.close,
+    volume: b.volume, rsi14: b.rsi14, ma20: b.ma20, ma50: b.ma50,
+    ma200: b.ma200, volumeRatio: b.volumeRatio, vix: b.vix,
+    drawdownFromHigh: b.drawdownFromHigh,
+  }))
+  return c.json({ total: bars.length, bars })
 })
 
 // ── API: Performance ────────────────────────────────────────────────────────

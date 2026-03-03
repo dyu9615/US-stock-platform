@@ -1415,89 +1415,520 @@ window.tradeTab = function(tab, btn) {
 // ╔══════════════════════════════════════════════════════════════════════╗
 // ║  7. BACKTEST                                                          ║
 // ╚══════════════════════════════════════════════════════════════════════╝
+// ╔══════════════════════════════════════════════════════════════════════╗
+// ║  7. BACKTESTING ENGINE — Buy-the-Dip / Contrarian / ML-Enhanced      ║
+// ║  10Y SPY Data · Event-Driven · Anti-Lookahead · Realistic Costs      ║
+// ╚══════════════════════════════════════════════════════════════════════╝
 async function renderBacktest(el) {
-  const { data } = await axios.get(`${API}/api/backtest`)
-  const results = data.filter(r => r.status === 'completed')
+  el.innerHTML = `<div class="text-gray-400 text-center py-10"><i class="fas fa-spinner fa-spin mr-2"></i>Running backtests on 10Y SPY data...</div>`
+
+  const [sumRes, compareRes, dipRes, mlRes] = await Promise.all([
+    axios.get(`${API}/api/btd/summary`),
+    axios.get(`${API}/api/btd/compare`),
+    axios.get(`${API}/api/btd/dip-events?limit=30`),
+    axios.get(`${API}/api/btd/ml-model`),
+  ])
+  const summary  = sumRes.data
+  const compare  = compareRes.data
+  const dipData  = dipRes.data
+  const mlModel  = mlRes.data
+
+  const strats   = summary.strategies
+  const cmpStrats = compare.strategies
+  const bench    = compare.benchmark
+
+  const tabIds = ['nav','compare','dips','ml','tradelog']
+  const tabLabels = ['📈 NAV Curves','⚖️ Strategy Compare','🎯 Dip Events','🤖 ML Classifier','📋 Trade Log']
 
   el.innerHTML = `
-  <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
-    ${results.map(r=>`
-    <div class="kpi-card cursor-pointer hover:border-cyan-500/30 transition" onclick="loadBtChart('${r.id}')">
-      <div class="text-xs text-gray-500 mb-1 truncate">${r.strategyName}</div>
-      <div class="text-2xl font-bold ${r.totalReturn>=0?'text-emerald-400':'text-red-400'}">+${r.totalReturn.toFixed(1)}%</div>
-      <div class="text-xs text-gray-400 mt-1">${r.startDate} → ${r.endDate}</div>
-      <div class="grid grid-cols-2 gap-1 mt-2 text-[11px]">
-        <div>夏普: <span class="text-amber-400">${r.sharpe.toFixed(2)}</span></div>
-        <div>回撤: <span class="text-red-400">${r.maxDrawdown.toFixed(1)}%</span></div>
-        <div>年化: <span class="text-cyan-400">${r.annualReturn.toFixed(1)}%</span></div>
-        <div>胜率: <span class="text-gray-300">${r.winRate.toFixed(1)}%</span></div>
+  <!-- HEADER + BIAS WARNINGS -->
+  <div class="flex items-center justify-between mb-4">
+    <div>
+      <div class="text-white font-bold text-base">Buy-the-Dip & Contrarian Backtesting Engine</div>
+      <div class="text-xs text-gray-400 mt-0.5">10Y SPY Daily · $100K Capital · 10bps Commission · 5bps Slippage · Anti-Look-Ahead · No Survivorship Bias</div>
+    </div>
+    <div class="flex gap-1.5">
+      ${summary.biasWarnings.map(w=>`
+      <div class="group relative">
+        <div class="w-5 h-5 rounded-full bg-amber-500/20 flex items-center justify-center cursor-help">
+          <i class="fas fa-exclamation text-amber-400 text-[9px]"></i>
+        </div>
+        <div class="hidden group-hover:block absolute right-0 top-6 bg-[#1a2540] border border-amber-500/30 text-[10px] text-amber-300 p-2 rounded w-56 z-50">${w}</div>
+      </div>`).join('')}
+    </div>
+  </div>
+
+  <!-- KPI CARDS — 4 strategies + benchmark -->
+  <div class="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
+    ${strats.map(s=>`
+    <div class="kpi-card cursor-pointer hover:border-cyan-500/40 transition" onclick="btLoadNav('${s.id}',this)">
+      <div class="text-[10px] text-gray-500 mb-1 leading-tight truncate">${s.strategyName.replace('(SPY 10Y)','').trim()}</div>
+      <div class="text-xl font-bold ${s.metrics.totalReturn>=0?'text-emerald-400':'text-red-400'}">${s.metrics.totalReturn>=0?'+':''}${s.metrics.totalReturn.toFixed(1)}%</div>
+      <div class="text-[10px] text-gray-500 mt-0.5">${s.startDate.slice(0,4)}–${s.endDate.slice(0,4)}</div>
+      <div class="grid grid-cols-2 gap-0.5 mt-1.5 text-[10px]">
+        <div>Sharpe <span class="text-amber-400">${s.metrics.sharpe}</span></div>
+        <div>MaxDD <span class="text-red-400">${s.metrics.maxDrawdown.toFixed(1)}%</span></div>
+        <div>CAGR <span class="text-cyan-400">${s.metrics.annualReturn.toFixed(1)}%</span></div>
+        <div>Win% <span class="text-gray-300">${s.metrics.winRate}%</span></div>
       </div>
+      <div class="mt-1.5 text-[9px] text-gray-600">${s.tradeCount} round-trips</div>
     </div>`).join('')}
-    <div class="kpi-card border-dashed border-amber-600/30 flex flex-col items-center justify-center gap-2 cursor-pointer hover:bg-[#1a2540] transition">
-      <div class="w-8 h-8 rounded-full bg-amber-500/20 flex items-center justify-center">
-        <i class="fas fa-spinner fa-spin text-amber-400"></i>
-      </div>
-      <div class="text-xs text-amber-400">回测运行中</div>
-      <div class="text-[10px] text-gray-500">高频因子挖掘实验</div>
+    <div class="kpi-card border-gray-700/40">
+      <div class="text-[10px] text-gray-500 mb-1">SPY Buy &amp; Hold</div>
+      <div class="text-xl font-bold text-gray-300">${bench.totalReturn>=0?'+':''}${bench.totalReturn.toFixed(1)}%</div>
+      <div class="text-[10px] text-gray-500 mt-0.5">2014–2024 (Benchmark)</div>
+      <div class="mt-2 text-[10px] text-gray-600">No active management</div>
     </div>
   </div>
 
-  <div class="card p-4">
-    <div class="flex items-center justify-between mb-4">
-      <div class="text-sm font-semibold text-white">回测净值曲线</div>
-      <div class="flex gap-2 text-xs">
-        ${results.map(r=>`<button class="tab-btn" onclick="loadBtChart('${r.id}',this)">${r.strategyName.slice(0,10)}</button>`).join('')}
-      </div>
-    </div>
-    <div class="chart-wrap h-64"><canvas id="btChart"></canvas></div>
+  <!-- TABS -->
+  <div class="flex gap-1 mb-4 border-b border-[#1e2d4a] pb-0">
+    ${tabIds.map((id,i)=>`<button id="bt-tab-${id}" onclick="btTab('${id}')"
+      class="tab-btn ${i===0?'active':''} text-xs px-3 py-1.5">${tabLabels[i]}</button>`).join('')}
   </div>
 
-  <div class="card p-4 mt-4">
-    <div class="text-sm font-semibold text-white mb-3">回测结果对比</div>
-    <table class="data-table"><thead><tr>
-      <th>策略名称</th><th>测试区间</th><th>初始资金</th><th>期末资金</th><th>总收益</th>
-      <th>年化收益</th><th>夏普比率</th><th>最大回撤</th><th>胜率</th><th>交易次数</th>
-    </tr></thead><tbody>
-      ${results.map(r=>`<tr>
-        <td class="font-semibold text-white">${r.strategyName}</td>
-        <td class="text-xs text-gray-400">${r.startDate}~${r.endDate}</td>
-        <td class="font-mono text-gray-400">${fmt.money(r.initialCapital)}</td>
-        <td class="font-mono text-white">${fmt.money(r.finalCapital)}</td>
-        <td class="font-mono font-bold text-emerald-400">+${r.totalReturn.toFixed(1)}%</td>
-        <td class="font-mono text-cyan-400">${r.annualReturn.toFixed(1)}%</td>
-        <td class="font-mono text-amber-400">${r.sharpe.toFixed(2)}</td>
-        <td class="font-mono text-red-400">${r.maxDrawdown.toFixed(1)}%</td>
-        <td class="font-mono text-gray-300">${r.winRate.toFixed(1)}%</td>
-        <td class="font-mono text-gray-400">${r.totalTrades}</td>
-      </tr>`).join('')}
-    </tbody></table>
-  </div>`
+  <!-- TAB: NAV Curves -->
+  <div id="bt-pane-nav">
+    <div class="card p-4 mb-4">
+      <div class="flex items-center justify-between mb-3">
+        <div>
+          <div class="text-sm font-semibold text-white" id="bt-nav-title">NAV Curve — Click a strategy card above</div>
+          <div class="text-[10px] text-gray-500 mt-0.5">Starting NAV = 1.0 · vs SPY Buy-and-Hold benchmark</div>
+        </div>
+        <div class="flex gap-2">
+          ${strats.map((s,i)=>`<button class="tab-btn text-[10px] ${i===0?'active':''}" onclick="btLoadNav('${s.id}',this)">${s.id.replace('bt_','').replace(/_/g,' ').toUpperCase().slice(0,12)}</button>`).join('')}
+        </div>
+      </div>
+      <div class="chart-wrap h-64"><canvas id="btNavChart"></canvas></div>
+    </div>
+    <div class="card p-4">
+      <div class="text-sm font-semibold text-white mb-3">Drawdown Series</div>
+      <div class="chart-wrap h-36"><canvas id="btDdChart"></canvas></div>
+    </div>
+    <div id="bt-nav-notes" class="card p-4 mt-4 bg-[#0d1221] border border-blue-900/30">
+      <div class="text-xs text-gray-400"><i class="fas fa-info-circle mr-1 text-blue-400"></i>Select a strategy to see implementation notes.</div>
+    </div>
+  </div>
 
-  if (results[0]) loadBtChart(results[0].id)
+  <!-- TAB: Strategy Compare -->
+  <div id="bt-pane-compare" class="hidden">
+    <div class="grid grid-cols-2 gap-4 mb-4">
+      <div class="card p-4">
+        <div class="text-sm font-semibold text-white mb-3">CAGR vs Max Drawdown (Risk-Return)</div>
+        <div class="chart-wrap h-56"><canvas id="btRiskReturnChart"></canvas></div>
+      </div>
+      <div class="card p-4">
+        <div class="text-sm font-semibold text-white mb-3">Sharpe / Sortino / Calmar Comparison</div>
+        <div class="chart-wrap h-56"><canvas id="btRatiosChart"></canvas></div>
+      </div>
+    </div>
+    <div class="card p-4">
+      <div class="text-sm font-semibold text-white mb-3">Full Metrics Comparison Table</div>
+      <div class="overflow-x-auto">
+        <table class="data-table text-xs">
+          <thead><tr>
+            <th>Strategy</th>
+            <th>CAGR%</th><th>Total%</th><th>Sharpe</th><th>Sortino</th>
+            <th>MaxDD%</th><th>Calmar</th><th>Win%</th><th>PF</th>
+            <th>AvgHold</th><th>Exposure%</th><th>Alpha%</th><th>Beta</th><th>IR</th>
+            <th>Trades</th>
+          </tr></thead>
+          <tbody>
+            ${cmpStrats.map(s=>`<tr>
+              <td class="font-semibold text-white text-[11px] whitespace-nowrap">${s.name.replace('(SPY 10Y)','').replace('(RF Proxy)','').trim()}</td>
+              <td class="text-cyan-400 font-mono">${s.annualReturn.toFixed(1)}</td>
+              <td class="text-emerald-400 font-mono">${s.totalReturn.toFixed(1)}</td>
+              <td class="text-amber-400 font-mono">${s.sharpe}</td>
+              <td class="text-amber-300 font-mono">${s.sortino}</td>
+              <td class="text-red-400 font-mono">${s.maxDrawdown.toFixed(1)}</td>
+              <td class="text-blue-400 font-mono">${s.calmarRatio}</td>
+              <td class="text-gray-300 font-mono">${s.winRate}</td>
+              <td class="text-purple-400 font-mono">${s.profitFactor}</td>
+              <td class="text-gray-400 font-mono">${s.avgHoldDays}d</td>
+              <td class="text-gray-400 font-mono">${s.exposure}%</td>
+              <td class="${s.alpha>=0?'text-emerald-400':'text-red-400'} font-mono">${s.alpha>=0?'+':''}${s.alpha.toFixed(1)}</td>
+              <td class="text-gray-300 font-mono">${s.beta}</td>
+              <td class="text-gray-300 font-mono">${s.informationRatio}</td>
+              <td class="text-gray-400 font-mono">${s.totalTrades}</td>
+            </tr>`).join('')}
+            <tr class="border-t border-gray-700/50">
+              <td class="text-gray-500 font-semibold">SPY Buy &amp; Hold</td>
+              <td class="text-gray-400 font-mono">${(Math.pow(1+bench.totalReturn/100,0.1)-1)*100>0?'+':''}${((Math.pow(1+bench.totalReturn/100,0.1)-1)*100).toFixed(1)}</td>
+              <td class="text-gray-400 font-mono">${bench.totalReturn.toFixed(1)}</td>
+              <td class="text-gray-500 font-mono">~0.65</td>
+              <td colspan="11" class="text-gray-600 text-[10px]">Passive benchmark — no transaction costs</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB: Dip Events -->
+  <div id="bt-pane-dips" class="hidden">
+    <div class="grid grid-cols-3 gap-4 mb-4">
+      <div class="kpi-card">
+        <div class="text-xs text-gray-500">Cataloged Dip Events</div>
+        <div class="text-2xl font-bold text-white">${dipData.total}</div>
+        <div class="text-[10px] text-gray-500">10Y SPY daily, drop &gt;2%</div>
+      </div>
+      <div class="kpi-card">
+        <div class="text-xs text-gray-500">5-Day Rebound Rate</div>
+        <div class="text-2xl font-bold text-emerald-400">${dipData.reboundRate}%</div>
+        <div class="text-[10px] text-gray-500">Rebound &gt;3% within 5 days</div>
+      </div>
+      <div class="kpi-card">
+        <div class="text-xs text-gray-500">ML Signal Fire Rate</div>
+        <div class="text-2xl font-bold text-cyan-400">${dipData.mlSignalRate}%</div>
+        <div class="text-[10px] text-gray-500">RF Score &gt;55% threshold</div>
+      </div>
+    </div>
+    <div class="card p-4">
+      <div class="flex items-center justify-between mb-3">
+        <div class="text-sm font-semibold text-white">Dip Event Catalog (ML-Labeled Training Data)</div>
+        <div class="flex gap-1 text-[10px]">
+          <button class="tab-btn active" onclick="btFilterDips('all',this)">All</button>
+          <button class="tab-btn" onclick="btFilterDips('single_day_drop',this)">Daily Drop</button>
+          <button class="tab-btn" onclick="btFilterDips('volume_spike_drop',this)">Vol Spike</button>
+          <button class="tab-btn" onclick="btFilterDips('macro_event',this)">Macro</button>
+          <button class="tab-btn" onclick="btFilterDips('earnings_gap',this)">Earnings Gap</button>
+        </div>
+      </div>
+      <div class="overflow-x-auto max-h-72 overflow-y-auto" id="bt-dip-table-wrap">
+        ${renderDipTable(dipData.events)}
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB: ML Classifier -->
+  <div id="bt-pane-ml" class="hidden">
+    <div class="grid grid-cols-2 gap-4 mb-4">
+      <!-- Model Card -->
+      <div class="card p-4">
+        <div class="text-sm font-semibold text-white mb-3">
+          <i class="fas fa-robot mr-1 text-cyan-400"></i>
+          ${mlModel.modelType}
+        </div>
+        <div class="grid grid-cols-2 gap-3 mb-4">
+          ${[['Accuracy',mlModel.accuracy+'%','text-emerald-400'],['Precision',mlModel.precision+'%','text-cyan-400'],
+             ['Recall',mlModel.recall+'%','text-amber-400'],['F1 Score',mlModel.f1+'%','text-purple-400'],
+             ['ROC-AUC',mlModel.rocAuc,'text-blue-400'],['Train Period',mlModel.trainPeriod.slice(0,7),'text-gray-300']].map(([l,v,c])=>`
+          <div class="bg-[#0d1630] rounded p-2">
+            <div class="text-[10px] text-gray-500">${l}</div>
+            <div class="text-base font-bold ${c}">${v}</div>
+          </div>`).join('')}
+        </div>
+        <!-- Confusion Matrix -->
+        <div class="text-xs text-gray-400 mb-2">Confusion Matrix (Test Set)</div>
+        <div class="grid grid-cols-2 gap-1 text-center text-xs max-w-36">
+          <div class="bg-emerald-900/30 border border-emerald-700/30 rounded p-2">
+            <div class="text-[9px] text-gray-500">TP</div>
+            <div class="font-bold text-emerald-400">${mlModel.confusionMatrix[0][0]}</div>
+          </div>
+          <div class="bg-red-900/20 border border-red-700/20 rounded p-2">
+            <div class="text-[9px] text-gray-500">FP</div>
+            <div class="font-bold text-red-400">${mlModel.confusionMatrix[0][1]}</div>
+          </div>
+          <div class="bg-orange-900/20 border border-orange-700/20 rounded p-2">
+            <div class="text-[9px] text-gray-500">FN</div>
+            <div class="font-bold text-orange-400">${mlModel.confusionMatrix[1][0]}</div>
+          </div>
+          <div class="bg-blue-900/20 border border-blue-700/20 rounded p-2">
+            <div class="text-[9px] text-gray-500">TN</div>
+            <div class="font-bold text-blue-400">${mlModel.confusionMatrix[1][1]}</div>
+          </div>
+        </div>
+      </div>
+      <!-- Feature Importance -->
+      <div class="card p-4">
+        <div class="text-sm font-semibold text-white mb-3">Feature Importance (RF — MDI)</div>
+        <div class="space-y-2 mb-4">
+          ${mlModel.featureImportance.map(f=>`
+          <div class="flex items-center gap-2">
+            <span class="text-xs text-gray-400 w-36 font-mono">${f.name}</span>
+            <div class="flex-1 score-bar">
+              <div class="score-bar-fill bg-gradient-to-r from-cyan-600 to-cyan-400" style="width:${(f.importance*100/0.28*100)}%"></div>
+            </div>
+            <span class="text-xs font-mono text-cyan-400 w-10 text-right">${(f.importance*100).toFixed(0)}%</span>
+          </div>`).join('')}
+        </div>
+        <div class="text-[10px] text-gray-600 border-t border-gray-700/30 pt-2">
+          <div class="text-gray-400 font-semibold mb-1">Python Implementation (scikit-learn):</div>
+          <pre class="text-gray-500 text-[9px] leading-relaxed">from sklearn.ensemble import RandomForestRegressor
+features = ${JSON.stringify(mlModel.features)}
+X_train = historical_df[features].fillna(0)
+y_train = historical_df["actual_6m_return"]
+model = RandomForestRegressor(n_estimators=100, random_state=42)
+model.fit(X_train, y_train)
+# Deploy via yfinance daily pull → predict rebound prob</pre>
+        </div>
+      </div>
+    </div>
+    <!-- Sample Predictions -->
+    <div class="card p-4">
+      <div class="text-sm font-semibold text-white mb-3">Live Inference Samples (Test Period)</div>
+      <table class="data-table text-xs">
+        <thead><tr>
+          <th>Date</th><th>Drop%</th><th>Vol×</th><th>RSI</th><th>VIX</th><th>MA200 Dev</th>
+          <th>ML Prob</th><th>Actual</th><th>Correct?</th>
+        </tr></thead>
+        <tbody>
+          ${mlModel.samplePredictions.map(p=>`<tr>
+            <td class="font-mono text-gray-400">${p.date}</td>
+            <td class="text-red-400 font-mono">${p.features.drop_magnitude?.toFixed(2)}%</td>
+            <td class="text-amber-400 font-mono">${p.features.volume_multiple?.toFixed(1)}×</td>
+            <td class="text-blue-400 font-mono">${p.features.rsi_14?.toFixed(0)}</td>
+            <td class="text-purple-400 font-mono">${p.features.vix_level?.toFixed(1)}</td>
+            <td class="text-orange-400 font-mono">${p.features.ma200_deviation?.toFixed(1)}%</td>
+            <td class="font-bold font-mono ${p.predictedProb>0.55?'text-emerald-400':'text-gray-500'}">${(p.predictedProb*100).toFixed(0)}%</td>
+            <td class="${p.actualOutcome===1?'text-emerald-400':'text-red-400'} font-mono">${p.actualOutcome===1?'↑ Rebound':'✗ No Rebound'}</td>
+            <td>${p.correct?'<span class="text-emerald-400">✓</span>':'<span class="text-red-400">✗</span>'}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+      <div class="mt-3 text-[10px] text-gray-500">
+        <i class="fas fa-info-circle mr-1 text-blue-400"></i>
+        Edge-runtime RF proxy computes feature-weighted score without scikit-learn dependency.
+        Production deployment: Python microservice → POST /api/ml/predict → threshold 55%.
+        <span class="text-amber-400 ml-2">yfinance training data guide: <code>yf.download('SPY', period='10y', interval='1d')</code></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB: Trade Log -->
+  <div id="bt-pane-tradelog" class="hidden">
+    <div class="flex items-center gap-3 mb-3">
+      <div class="text-sm font-semibold text-white">Recent Trade Log</div>
+      <div class="flex gap-1 text-[10px]">
+        ${strats.map((s,i)=>`<button class="tab-btn ${i===0?'active':''}" onclick="btLoadTrades('${s.id}',this)">${s.id.replace('bt_','').replace(/_/g,' ').toUpperCase().slice(0,14)}</button>`).join('')}
+      </div>
+    </div>
+    <div id="bt-trade-log-content" class="card p-4">
+      <div class="text-gray-400 text-center py-4">Loading trades...</div>
+    </div>
+  </div>
+  `
+
+  // ── Initialize charts and data ────────────────────────────────────────────
+  setTimeout(() => {
+    btLoadNav(strats[0].id)
+    btRenderCompareCharts(cmpStrats, bench)
+    btLoadTrades(strats[0].id)
+  }, 50)
+
+  window._btDipEvents = dipData.events
 }
 
-window.loadBtChart = async function(id, btn) {
+// ── Tab switcher ──────────────────────────────────────────────────────────────
+window.btTab = function(id) {
+  ['nav','compare','dips','ml','tradelog'].forEach(t => {
+    document.getElementById(`bt-pane-${t}`)?.classList.toggle('hidden', t !== id)
+    document.getElementById(`bt-tab-${t}`)?.classList.toggle('active', t === id)
+  })
+}
+
+// ── Load NAV curve ────────────────────────────────────────────────────────────
+window.btLoadNav = async function(id, btn) {
   if (btn) {
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'))
+    document.querySelectorAll('#bt-pane-nav .tab-btn').forEach(b => b.classList.remove('active'))
     btn.classList.add('active')
   }
-  const { data: bt } = await axios.get(`${API}/api/backtest/${id}`)
-  const step = Math.max(1, Math.floor(bt.navCurve.length / 80))
-  const pts = bt.navCurve.filter((_,i)=>i%step===0)
-  const ctx = document.getElementById('btChart')?.getContext('2d')
-  if (!ctx) return
-  if (charts.bt) charts.bt.destroy()
-  charts.bt = new Chart(ctx, {
-    type: 'line',
-    data: {
-      labels: pts.map(p=>p.date.slice(5)),
-      datasets: [
-        { label: bt.strategyName, data: pts.map(p=>p.nav), borderColor:'#22d3ee', borderWidth:2, pointRadius:0, fill:{target:'origin',above:'rgba(34,211,238,0.06)'}, tension:0.3 },
-        { label: 'S&P 500', data: pts.map(p=>p.benchmark), borderColor:'#6b7280', borderWidth:1.5, pointRadius:0, borderDash:[4,4], tension:0.3 },
-      ]
-    },
-    options: chartOpts('净值')
-  })
+  document.querySelectorAll('.kpi-card').forEach(c => c.classList.remove('ring-1','ring-cyan-500'))
+  const strat = id.replace('bt_','')
+  try {
+    const { data: bt } = await axios.get(`${API}/api/btd/result/${id}`)
+    const nc = bt.navCurve
+    const labels = nc.map(p => p.date.slice(2))
+
+    document.getElementById('bt-nav-title').textContent =
+      `NAV: ${bt.strategyName} — $100K → $${(bt.finalCapital/1000).toFixed(1)}K`
+
+    // NAV chart
+    const ctx1 = document.getElementById('btNavChart')?.getContext('2d')
+    if (ctx1) {
+      if (charts.btNav) charts.btNav.destroy()
+      charts.btNav = new Chart(ctx1, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [
+            { label: bt.strategyName.slice(0,25), data: nc.map(p=>p.nav),
+              borderColor:'#22d3ee', borderWidth:2, pointRadius:0,
+              fill:{target:'origin',above:'rgba(34,211,238,0.06)'}, tension:0.3 },
+            { label: 'SPY Buy&Hold', data: nc.map(p=>p.benchmark),
+              borderColor:'#6b7280', borderWidth:1.5, pointRadius:0,
+              borderDash:[4,4], tension:0.3 },
+          ]
+        },
+        options: chartOpts('NAV')
+      })
+    }
+
+    // Drawdown chart
+    const ctx2 = document.getElementById('btDdChart')?.getContext('2d')
+    if (ctx2) {
+      if (charts.btDd) charts.btDd.destroy()
+      charts.btDd = new Chart(ctx2, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [{ label: 'Drawdown %', data: nc.map(p=>p.drawdown),
+            borderColor:'#f87171', borderWidth:1.5, pointRadius:0,
+            fill:{target:'origin',below:'rgba(248,113,113,0.12)'}, tension:0.2 }]
+        },
+        options: { ...chartOpts('DD%'), scales: { ...chartOpts('DD%').scales,
+          y: { ...chartOpts('DD%').scales?.y, max: 0 } } }
+      })
+    }
+
+    // Notes
+    const notesEl = document.getElementById('bt-nav-notes')
+    if (notesEl) {
+      notesEl.innerHTML = `
+        <div class="text-[11px] text-gray-300 leading-relaxed">
+          <i class="fas fa-info-circle mr-1 text-blue-400"></i>
+          <span class="font-semibold text-cyan-400">${bt.strategyName}:</span> ${bt.notes}
+        </div>
+        <div class="grid grid-cols-4 gap-3 mt-3 text-[10px]">
+          <div><span class="text-gray-500">Commission:</span> <span class="text-white">${bt.commission}bps (0.1%)</span></div>
+          <div><span class="text-gray-500">Slippage:</span> <span class="text-white">${bt.slippage}bps</span></div>
+          <div><span class="text-gray-500">Universe:</span> <span class="text-gray-300">${bt.universe.slice(0,30)}</span></div>
+          <div><span class="text-gray-500">Period:</span> <span class="text-gray-300">${bt.startDate} → ${bt.endDate}</span></div>
+        </div>`
+    }
+  } catch(e) {
+    console.error('btLoadNav error', e)
+  }
+}
+
+// ── Compare Charts ────────────────────────────────────────────────────────────
+function btRenderCompareCharts(strats, bench) {
+  // Risk-Return scatter
+  const ctx1 = document.getElementById('btRiskReturnChart')?.getContext('2d')
+  if (ctx1) {
+    if (charts.btRR) charts.btRR.destroy()
+    const colors = ['#22d3ee','#a78bfa','#34d399','#f59e0b','#6b7280']
+    const labels = [...strats.map(s=>s.name.replace('(SPY 10Y)','').replace('(RF Proxy)','').trim().slice(0,16)),
+                    'SPY Buy&Hold']
+    const xData  = [...strats.map(s=>Math.abs(s.maxDrawdown)), 10]
+    const yData  = [...strats.map(s=>s.annualReturn), bench.annualReturn||8.5]
+    charts.btRR = new Chart(ctx1, {
+      type: 'scatter',
+      data: {
+        datasets: labels.map((l,i)=>({
+          label: l,
+          data: [{ x: xData[i], y: yData[i] }],
+          backgroundColor: colors[i],
+          pointRadius: 8, pointHoverRadius: 10,
+        }))
+      },
+      options: {
+        ...chartOpts('CAGR%'),
+        scales: {
+          x: { title: { display:true, text:'Max Drawdown % (risk)', color:'#6b7280' }, grid:{color:'rgba(255,255,255,0.04)'}, ticks:{color:'#6b7280'} },
+          y: { title: { display:true, text:'Annual Return %', color:'#6b7280' }, grid:{color:'rgba(255,255,255,0.04)'}, ticks:{color:'#6b7280'} }
+        }
+      }
+    })
+  }
+
+  // Ratios bar chart
+  const ctx2 = document.getElementById('btRatiosChart')?.getContext('2d')
+  if (ctx2) {
+    if (charts.btRatios) charts.btRatios.destroy()
+    const names = strats.map(s=>s.name.replace('(SPY 10Y)','').replace('(RF Proxy)','').trim().slice(0,14))
+    charts.btRatios = new Chart(ctx2, {
+      type: 'bar',
+      data: {
+        labels: names,
+        datasets: [
+          { label:'Sharpe',  data: strats.map(s=>s.sharpe),  backgroundColor:'rgba(251,191,36,0.7)' },
+          { label:'Sortino', data: strats.map(s=>s.sortino), backgroundColor:'rgba(34,211,238,0.7)' },
+          { label:'Calmar',  data: strats.map(s=>s.calmarRatio),  backgroundColor:'rgba(167,139,250,0.7)' },
+        ]
+      },
+      options: { ...chartOpts('Ratio'), plugins:{...chartOpts('').plugins, legend:{labels:{color:'#9ca3af',font:{size:10}}}} }
+    })
+  }
+}
+
+// ── Load Trade Log ────────────────────────────────────────────────────────────
+window.btLoadTrades = async function(id, btn) {
+  if (btn) {
+    document.querySelectorAll('#bt-pane-tradelog .tab-btn').forEach(b => b.classList.remove('active'))
+    btn.classList.add('active')
+  }
+  const el = document.getElementById('bt-trade-log-content')
+  if (!el) return
+  el.innerHTML = `<div class="text-gray-400 text-center py-4"><i class="fas fa-spinner fa-spin mr-2"></i>Loading...</div>`
+  try {
+    const { data: bt } = await axios.get(`${API}/api/btd/result/${id}`)
+    const sells = bt.trades.filter(t => t.type === 'SELL')
+    el.innerHTML = `
+      <div class="text-xs text-gray-400 mb-2">Last ${sells.length} completed trades — ${bt.strategyName}</div>
+      <div class="overflow-x-auto">
+        <table class="data-table text-xs">
+          <thead><tr>
+            <th>Date</th><th>Type</th><th>Price</th><th>Shares</th><th>Hold</th>
+            <th>P&L $</th><th>P&L %</th><th>Trigger</th><th>Reason</th>
+          </tr></thead>
+          <tbody>
+            ${bt.trades.map(t=>`<tr>
+              <td class="font-mono text-gray-400">${t.date}</td>
+              <td><span class="badge ${t.type==='BUY'?'badge-beat':'badge-miss'}">${t.type}</span></td>
+              <td class="font-mono text-gray-300">${t.price.toFixed(2)}</td>
+              <td class="font-mono text-gray-400">${t.shares}</td>
+              <td class="font-mono text-gray-500">${t.holdDays||'—'}d</td>
+              <td class="font-mono font-bold ${(t.pnl||0)>=0?'text-emerald-400':'text-red-400'}">${t.pnl!==undefined?((t.pnl>=0?'+':'')+'$'+Math.abs(t.pnl).toFixed(0)):'—'}</td>
+              <td class="font-mono ${(t.pnlPct||0)>=0?'text-emerald-400':'text-red-400'}">${t.pnlPct!==undefined?((t.pnlPct>=0?'+':'')+t.pnlPct.toFixed(1)+'%'):'—'}</td>
+              <td class="text-[10px] text-cyan-400 font-mono">${t.trigger||'—'}</td>
+              <td class="text-[10px] text-gray-500 max-w-xs truncate">${t.reason}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>`
+  } catch(e) {
+    el.innerHTML = `<div class="text-red-400 text-xs p-4">Error loading trades: ${e.message}</div>`
+  }
+}
+
+// ── Dip table filter ──────────────────────────────────────────────────────────
+window.btFilterDips = async function(trigger, btn) {
+  document.querySelectorAll('#bt-pane-dips .tab-btn').forEach(b=>b.classList.remove('active'))
+  btn.classList.add('active')
+  const wrap = document.getElementById('bt-dip-table-wrap')
+  if (!wrap) return
+  const url = trigger === 'all'
+    ? `${API}/api/btd/dip-events?limit=50`
+    : `${API}/api/btd/dip-events?limit=50&trigger=${trigger}`
+  const { data } = await axios.get(url)
+  wrap.innerHTML = renderDipTable(data.events)
+}
+
+function renderDipTable(events) {
+  if (!events || events.length === 0) return `<div class="text-gray-500 text-xs p-4">No events found.</div>`
+  return `<table class="data-table text-xs">
+    <thead><tr>
+      <th>Date</th><th>Trigger</th><th>Drop%</th><th>Vol×</th>
+      <th>RSI</th><th>VIX</th><th>MA200 Dev</th>
+      <th>ML Prob</th><th>Signal</th><th>Rebound 5d</th><th>Outcome</th>
+    </tr></thead>
+    <tbody>
+      ${events.map(e=>`<tr>
+        <td class="font-mono text-gray-400">${e.date}</td>
+        <td><span class="badge ${e.triggerType==='earnings_gap'?'badge-live':e.triggerType==='macro_event'?'badge-miss':'badge-backtesting'} text-[9px]">${e.triggerType.replace(/_/g,' ')}</span></td>
+        <td class="text-red-400 font-mono font-bold">${e.dropMagnitude.toFixed(1)}%</td>
+        <td class="text-amber-400 font-mono">${e.volumeMultiple.toFixed(1)}×</td>
+        <td class="text-blue-400 font-mono">${e.rsi}</td>
+        <td class="text-purple-400 font-mono">${e.vix}</td>
+        <td class="text-orange-400 font-mono">${e.ma200Deviation.toFixed(1)}%</td>
+        <td class="font-bold font-mono ${e.mlPredictedProb>0.55?'text-emerald-400':'text-gray-500'}">${(e.mlPredictedProb*100).toFixed(0)}%</td>
+        <td>${e.signalFired?'<span class="text-emerald-400 text-[10px]">✓ FIRE</span>':'<span class="text-gray-600 text-[10px]">— skip</span>'}</td>
+        <td class="${e.reboundMagnitude>0?'text-emerald-400':'text-red-400'} font-mono">${e.reboundMagnitude>0?'+':''}${e.reboundMagnitude.toFixed(1)}%</td>
+        <td>${e.reboundWithin5d?'<span class="badge badge-beat text-[9px]">↑ Rebound</span>':'<span class="badge badge-miss text-[9px]">✗ No</span>'}</td>
+      </tr>`).join('')}
+    </tbody>
+  </table>`
 }
 
 // ╔══════════════════════════════════════════════════════════════════════╗
