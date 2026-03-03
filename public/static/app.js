@@ -2310,90 +2310,581 @@ async function renderResearch(el) {
 }
 
 // ╔══════════════════════════════════════════════════════════════════════╗
-// ║  6. TRADING MODULE                                                    ║
+// ║  6. TRADING MODULE — User Trade Journal                               ║
 // ╚══════════════════════════════════════════════════════════════════════╝
+
+// ── Persistent store (localStorage) ─────────────────────────────────────
+const TRADE_KEY = 'qa_trades_v1';
+function loadTrades()  { try { return JSON.parse(localStorage.getItem(TRADE_KEY) || '[]'); } catch(e){ return []; } }
+function saveTrades(t) { localStorage.setItem(TRADE_KEY, JSON.stringify(t)); }
+function genId()       { return Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
+
 async function renderTrading(el) {
-  const [posRes, tradeRes] = await Promise.all([
-    axios.get(`${API}/api/positions`),
-    axios.get(`${API}/api/trades`),
-  ])
-  const positions = posRes.data, trades = tradeRes.data
-  const totalMV = positions.reduce((s,p)=>s+p.marketValue,0)
-  const totalPnl = positions.reduce((s,p)=>s+p.pnl,0)
 
-  el.innerHTML = `
-  <div class="flex gap-2 mb-4">
-    <button class="tab-btn active" onclick="tradeTab('positions',this)">📊 持仓明细</button>
-    <button class="tab-btn" onclick="tradeTab('orders',this)">📋 当日交易</button>
+  // ── computed helpers ─────────────────────────────────────────────────
+  function calcPnl(t) {
+    if (t.side === 'BUY') return null; // open — P&L when closed
+    // for SELL records, look for matching BUY by ticker (simple avg cost)
+    return null;
+  }
+  function totalCost(t) { return (parseFloat(t.qty) * parseFloat(t.price) + parseFloat(t.commission||0)); }
+  function formatCcy(v) { return v == null ? '—' : (v >= 0 ? `+$${v.toFixed(2)}` : `-$${Math.abs(v).toFixed(2)}`); }
+
+  // ── summary stats from trades array ──────────────────────────────────
+  function buildStats(trades) {
+    const buys  = trades.filter(t => t.side === 'BUY');
+    const sells = trades.filter(t => t.side === 'SELL');
+    const totalBuyNotional  = buys.reduce((s,t)  => s + totalCost(t), 0);
+    const totalSellNotional = sells.reduce((s,t) => s + parseFloat(t.qty) * parseFloat(t.price), 0);
+    const commissions       = trades.reduce((s,t) => s + parseFloat(t.commission||0), 0);
+    // realized P&L: for each sell, find avg cost of buys in same ticker
+    let realizedPnl = 0;
+    const tickers = [...new Set(trades.map(t => t.ticker))];
+    tickers.forEach(ticker => {
+      const tb = trades.filter(t => t.ticker === ticker && t.side === 'BUY');
+      const ts = trades.filter(t => t.ticker === ticker && t.side === 'SELL');
+      const avgCost = tb.length ? tb.reduce((s,t) => s + parseFloat(t.price), 0) / tb.length : 0;
+      ts.forEach(s => { realizedPnl += (parseFloat(s.price) - avgCost) * parseFloat(s.qty); });
+    });
+    return { totalTrades: trades.length, buys: buys.length, sells: sells.length,
+             totalBuyNotional, totalSellNotional, commissions, realizedPnl,
+             uniqueTickers: tickers.length };
+  }
+
+  // ── position book: aggregate open lots ───────────────────────────────
+  function buildPositions(trades) {
+    const book = {};
+    trades.forEach(t => {
+      const tk = t.ticker.toUpperCase();
+      if (!book[tk]) book[tk] = { ticker: tk, lots: [], totalQty: 0, totalCost: 0 };
+      if (t.side === 'BUY') {
+        book[tk].totalQty  += parseFloat(t.qty);
+        book[tk].totalCost += parseFloat(t.qty) * parseFloat(t.price);
+      } else {
+        book[tk].totalQty  -= parseFloat(t.qty);
+        book[tk].totalCost -= parseFloat(t.qty) * parseFloat(t.price);
+      }
+    });
+    return Object.values(book).filter(p => p.totalQty > 0.0001).map(p => ({
+      ...p,
+      avgCost: p.totalQty > 0 ? p.totalCost / p.totalQty : 0,
+    }));
+  }
+
+  // ── render function (called on every state change) ────────────────────
+  function render() {
+    const trades = loadTrades();
+    const stats  = buildStats(trades);
+    const positions = buildPositions(trades);
+    const activeTab = window._tradeTab || 'journal';
+
+    el.innerHTML = `
+
+<!-- ════ HEADER ════════════════════════════════════════════════════════ -->
+<div class="flex items-center justify-between mb-5">
+  <div>
+    <h2 class="text-xl font-bold text-white flex items-center gap-2">
+      <i class="fas fa-exchange-alt text-cyan-400"></i>
+      交易模块 Trade Journal
+    </h2>
+    <p class="text-xs text-gray-500 mt-0.5">手动记录交易 · Local storage · 无服务端依赖</p>
   </div>
+  <button onclick="window._tradeOpenForm()"
+    class="flex items-center gap-2 px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white text-sm font-semibold rounded-lg transition-all shadow-lg shadow-cyan-900/30">
+    <i class="fas fa-plus"></i> 添加交易 Add Trade
+  </button>
+</div>
 
-  <div id="trade-positions">
-    <div class="grid grid-cols-4 gap-4 mb-4">
-      ${kpiCard('持仓市值', fmt.money(totalMV), '', 'fas fa-briefcase', 'text-cyan-400')}
-      ${kpiCard('浮动盈亏', fmt.money(totalPnl), fmt.pct(totalPnl/totalMV*100), 'fas fa-chart-line', totalPnl>=0?'text-emerald-400':'text-red-400')}
-      ${kpiCard('持仓数量', positions.length+'只', '', 'fas fa-list', 'text-amber-400')}
-      ${kpiCard('最大单仓', `${(Math.max(...positions.map(p=>p.weight))).toFixed(1)}%`, '仓位占比', 'fas fa-exclamation-triangle', 'text-amber-400')}
-    </div>
-    <div class="card overflow-hidden">
-      <div class="overflow-auto">
-        <table class="data-table"><thead><tr>
-          <th>代码</th><th>名称</th><th>持仓量</th><th>成本</th><th>现价</th><th>市值</th><th>盈亏</th><th>盈亏率</th><th>仓位</th><th>策略</th>
-        </tr></thead><tbody>
-          ${positions.map(p=>`<tr>
-            <td class="font-mono text-gray-400 text-xs">${p.code}</td>
-            <td class="font-semibold text-white">${p.name}</td>
-            <td class="font-mono text-gray-300">${p.quantity.toLocaleString()}</td>
-            <td class="font-mono text-gray-400">¥${p.avgCost.toFixed(2)}</td>
-            <td class="font-mono text-white font-bold">¥${p.currentPrice.toFixed(2)}</td>
-            <td class="font-mono text-gray-300">${fmt.money(p.marketValue)}</td>
-            <td class="font-mono font-bold ${p.pnl>=0?'text-emerald-400':'text-red-400'}">${p.pnl>=0?'+':''}${fmt.money(p.pnl)}</td>
-            <td class="font-mono font-bold ${p.pnlPct>=0?'text-emerald-400':'text-red-400'}">${fmt.pct(p.pnlPct)}</td>
-            <td>
-              <div class="flex items-center gap-2">
-                <div class="score-bar w-14"><div class="score-bar-fill bg-blue-500" style="width:${Math.min(p.weight*5,100)}%"></div></div>
-                <span class="text-xs text-gray-400">${p.weight.toFixed(1)}%</span>
-              </div>
-            </td>
-            <td class="text-[10px] text-gray-500">${p.strategyId}</td>
-          </tr>`).join('')}
-        </tbody></table>
-      </div>
+<!-- ════ KPI STRIP ═════════════════════════════════════════════════════ -->
+<div class="grid grid-cols-4 gap-3 mb-5">
+  <div class="bg-[#0d1221] border border-[#1e2d4a] rounded-xl p-3">
+    <div class="text-[10px] text-gray-500 uppercase mb-1">Total Trades</div>
+    <div class="text-2xl font-bold text-white">${stats.totalTrades}</div>
+    <div class="text-[10px] text-gray-500 mt-0.5">
+      <span class="text-emerald-400">${stats.buys} Buy</span> · <span class="text-red-400">${stats.sells} Sell</span>
     </div>
   </div>
-
-  <div id="trade-orders" class="hidden">
-    <div class="card overflow-hidden">
-      <div class="px-4 py-3 border-b border-[#1e2d4a] flex items-center gap-2">
-        <span class="text-sm font-semibold text-white">当日交易记录</span>
-        <span class="badge badge-live">${trades.filter(t=>t.status==='filled').length} 已成交</span>
-        <span class="badge badge-paused">${trades.filter(t=>t.status==='pending').length} 待成交</span>
-      </div>
-      <div class="overflow-auto">
-        <table class="data-table"><thead><tr>
-          <th>时间</th><th>代码</th><th>名称</th><th>方向</th><th>数量</th><th>价格</th><th>金额</th><th>状态</th><th>策略</th>
-        </tr></thead><tbody>
-          ${trades.map(t=>`<tr>
-            <td class="font-mono text-gray-500 text-xs">${t.time}</td>
-            <td class="font-mono text-gray-400 text-xs">${t.code}</td>
-            <td class="font-semibold text-white">${t.name}</td>
-            <td><span class="badge ${t.direction==='buy'?'badge-beat':'badge-miss'}">${t.direction==='buy'?'买入':'卖出'}</span></td>
-            <td class="font-mono text-gray-300">${t.quantity.toLocaleString()}</td>
-            <td class="font-mono text-white">¥${t.price.toFixed(2)}</td>
-            <td class="font-mono text-gray-300">${fmt.money(t.amount)}</td>
-            <td><span class="badge ${t.status==='filled'?'badge-live':'badge-paused'}">${t.status}</span></td>
-            <td class="text-[10px] text-gray-500">${t.strategyName}</td>
-          </tr>`).join('')}
-        </tbody></table>
-      </div>
+  <div class="bg-[#0d1221] border border-[#1e2d4a] rounded-xl p-3">
+    <div class="text-[10px] text-gray-500 uppercase mb-1">Open Positions</div>
+    <div class="text-2xl font-bold text-cyan-400">${positions.length}</div>
+    <div class="text-[10px] text-gray-500 mt-0.5">${stats.uniqueTickers} unique tickers</div>
+  </div>
+  <div class="bg-[#0d1221] border border-[#1e2d4a] rounded-xl p-3">
+    <div class="text-[10px] text-gray-500 uppercase mb-1">Realized P&L</div>
+    <div class="text-2xl font-bold ${stats.realizedPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}">
+      ${formatCcy(stats.realizedPnl)}
     </div>
-  </div>`
-}
+    <div class="text-[10px] text-gray-500 mt-0.5">Commissions: $${stats.commissions.toFixed(2)}</div>
+  </div>
+  <div class="bg-[#0d1221] border border-[#1e2d4a] rounded-xl p-3">
+    <div class="text-[10px] text-gray-500 uppercase mb-1">Total Buy Notional</div>
+    <div class="text-2xl font-bold text-white">$${(stats.totalBuyNotional/1000).toFixed(1)}K</div>
+    <div class="text-[10px] text-gray-500 mt-0.5">Sell: $${(stats.totalSellNotional/1000).toFixed(1)}K</div>
+  </div>
+</div>
 
-window.tradeTab = function(tab, btn) {
-  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'))
-  btn.classList.add('active')
-  document.getElementById('trade-positions').classList.toggle('hidden', tab !== 'positions')
-  document.getElementById('trade-orders').classList.toggle('hidden', tab !== 'orders')
+<!-- ════ TABS ══════════════════════════════════════════════════════════ -->
+<div class="flex gap-1 mb-4">
+  ${[['journal','📋 交易记录 Journal'],['positions','📊 持仓汇总 Positions'],['analytics','📈 分析 Analytics']].map(([id,label])=>`
+  <button onclick="window._tradeTab='${id}'; window._tradeRender()"
+    class="px-4 py-1.5 rounded-lg text-sm transition-all ${activeTab===id ? 'bg-cyan-600 text-white font-semibold' : 'bg-[#0d1221] border border-[#1e2d4a] text-gray-400 hover:text-white'}">
+    ${label}
+  </button>`).join('')}
+  ${trades.length > 0 ? `
+  <button onclick="window._tradeClearAll()"
+    class="ml-auto px-3 py-1.5 rounded-lg text-xs border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-all">
+    <i class="fas fa-trash-alt mr-1"></i>清空 Clear All
+  </button>` : ''}
+</div>
+
+<!-- ════ TAB: JOURNAL ══════════════════════════════════════════════════ -->
+<div id="tab-journal" class="${activeTab==='journal'?'':'hidden'}">
+  ${trades.length === 0 ? `
+  <div class="flex flex-col items-center justify-center py-24 text-center">
+    <div class="w-16 h-16 bg-[#0d1221] border border-[#1e2d4a] rounded-2xl flex items-center justify-center mb-4">
+      <i class="fas fa-exchange-alt text-gray-600 text-2xl"></i>
+    </div>
+    <div class="text-gray-400 font-semibold mb-1">No trades yet</div>
+    <div class="text-gray-600 text-sm mb-4">Click "添加交易 Add Trade" to log your first entry</div>
+    <button onclick="window._tradeOpenForm()"
+      class="px-5 py-2 bg-cyan-600 hover:bg-cyan-500 text-white text-sm font-semibold rounded-lg transition-all">
+      <i class="fas fa-plus mr-2"></i>Add First Trade
+    </button>
+  </div>` : `
+  <div class="bg-[#0d1221] border border-[#1e2d4a] rounded-xl overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="w-full text-xs">
+        <thead class="bg-[#0a0e1a]">
+          <tr class="text-[10px] text-gray-500 uppercase tracking-wider">
+            <th class="py-2.5 px-3 text-left">Date</th>
+            <th class="py-2.5 px-3 text-left">Ticker</th>
+            <th class="py-2.5 px-3 text-center">Side</th>
+            <th class="py-2.5 px-3 text-right">Qty</th>
+            <th class="py-2.5 px-3 text-right">Price</th>
+            <th class="py-2.5 px-3 text-right">Notional</th>
+            <th class="py-2.5 px-3 text-right">Commission</th>
+            <th class="py-2.5 px-3 text-left">Strategy</th>
+            <th class="py-2.5 px-3 text-left">Notes</th>
+            <th class="py-2.5 px-3 text-center">Action</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-[#1a2540]">
+          ${[...trades].reverse().map((t,i) => {
+            const notional = parseFloat(t.qty) * parseFloat(t.price);
+            const idx = trades.length - 1 - i; // real index in array
+            return `<tr class="hover:bg-[#1a2540]/50 transition-colors">
+              <td class="py-2 px-3 font-mono text-gray-400">${t.date}</td>
+              <td class="py-2 px-3">
+                <span class="font-bold text-white">${t.ticker.toUpperCase()}</span>
+                ${t.exchange ? `<span class="text-[9px] text-gray-600 ml-1">${t.exchange}</span>` : ''}
+              </td>
+              <td class="py-2 px-3 text-center">
+                <span class="text-[10px] font-bold px-2 py-0.5 rounded-full ${t.side==='BUY'?'bg-emerald-500/20 text-emerald-300':'bg-red-500/20 text-red-300'}">${t.side}</span>
+              </td>
+              <td class="py-2 px-3 text-right font-mono text-gray-200">${parseFloat(t.qty).toLocaleString()}</td>
+              <td class="py-2 px-3 text-right font-mono text-white font-semibold">$${parseFloat(t.price).toFixed(2)}</td>
+              <td class="py-2 px-3 text-right font-mono text-gray-300">$${notional.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+              <td class="py-2 px-3 text-right font-mono text-gray-500">$${parseFloat(t.commission||0).toFixed(2)}</td>
+              <td class="py-2 px-3 text-gray-400 text-[11px]">${t.strategy||'—'}</td>
+              <td class="py-2 px-3 text-gray-500 text-[10px] max-w-[140px] truncate" title="${t.notes||''}">${t.notes||'—'}</td>
+              <td class="py-2 px-3 text-center">
+                <div class="flex items-center justify-center gap-2">
+                  <button onclick="window._tradeOpenForm(${idx})"
+                    class="text-gray-500 hover:text-cyan-400 transition-colors text-xs">
+                    <i class="fas fa-pencil-alt"></i>
+                  </button>
+                  <button onclick="window._tradeDelete(${idx})"
+                    class="text-gray-500 hover:text-red-400 transition-colors text-xs">
+                    <i class="fas fa-times"></i>
+                  </button>
+                </div>
+              </td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+  </div>`}
+</div>
+
+<!-- ════ TAB: POSITIONS ════════════════════════════════════════════════ -->
+<div id="tab-positions" class="${activeTab==='positions'?'':'hidden'}">
+  ${positions.length === 0 ? `
+  <div class="flex flex-col items-center justify-center py-24 text-center">
+    <i class="fas fa-layer-group text-gray-700 text-3xl mb-3"></i>
+    <div class="text-gray-400">No open positions</div>
+    <div class="text-gray-600 text-sm">Log buy trades to see your position book here</div>
+  </div>` : `
+  <div class="bg-[#0d1221] border border-[#1e2d4a] rounded-xl overflow-hidden">
+    <div class="px-4 py-3 border-b border-[#1e2d4a] flex items-center gap-2">
+      <i class="fas fa-layer-group text-cyan-400 text-sm"></i>
+      <span class="text-sm font-semibold text-white">Open Position Book</span>
+      <span class="text-[10px] text-gray-500">avg cost = simple mean of all buy prices per ticker</span>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full text-xs">
+        <thead class="bg-[#0a0e1a]">
+          <tr class="text-[10px] text-gray-500 uppercase tracking-wider">
+            <th class="py-2.5 px-4 text-left">Ticker</th>
+            <th class="py-2.5 px-4 text-right">Open Qty</th>
+            <th class="py-2.5 px-4 text-right">Avg Cost</th>
+            <th class="py-2.5 px-4 text-right">Book Value</th>
+            <th class="py-2.5 px-4 text-left">Weight %</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-[#1a2540]">
+        ${(()=>{
+          const total = positions.reduce((s,p)=>s+(p.totalQty*p.avgCost),0);
+          return positions.sort((a,b)=>(b.totalQty*b.avgCost)-(a.totalQty*a.avgCost)).map(p=>{
+            const bv = p.totalQty * p.avgCost;
+            const wt = total > 0 ? (bv/total*100) : 0;
+            return `<tr class="hover:bg-[#1a2540]/50">
+              <td class="py-3 px-4 font-bold text-white text-sm">${p.ticker}</td>
+              <td class="py-3 px-4 text-right font-mono text-gray-200">${p.totalQty.toLocaleString('en-US',{maximumFractionDigits:4})}</td>
+              <td class="py-3 px-4 text-right font-mono text-cyan-300">$${p.avgCost.toFixed(4)}</td>
+              <td class="py-3 px-4 text-right font-mono text-white font-semibold">$${bv.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+              <td class="py-3 px-4">
+                <div class="flex items-center gap-2">
+                  <div class="flex-1 h-1.5 bg-[#1a2540] rounded-full overflow-hidden max-w-[80px]">
+                    <div class="h-full bg-cyan-500 rounded-full" style="width:${Math.min(wt,100)}%"></div>
+                  </div>
+                  <span class="text-gray-400 font-mono text-[10px] w-10 text-right">${wt.toFixed(1)}%</span>
+                </div>
+              </td>
+            </tr>`;
+          }).join('');
+        })()}
+        </tbody>
+      </table>
+    </div>
+  </div>`}
+</div>
+
+<!-- ════ TAB: ANALYTICS ════════════════════════════════════════════════ -->
+<div id="tab-analytics" class="${activeTab==='analytics'?'':'hidden'}">
+  ${trades.length < 2 ? `
+  <div class="flex flex-col items-center justify-center py-24 text-center">
+    <i class="fas fa-chart-pie text-gray-700 text-3xl mb-3"></i>
+    <div class="text-gray-400">Need at least 2 trades for analytics</div>
+    <div class="text-gray-600 text-sm">Add more trades to see breakdown charts</div>
+  </div>` : `
+  <div class="grid grid-cols-2 gap-5">
+
+    <!-- By Ticker -->
+    <div class="bg-[#0d1221] border border-[#1e2d4a] rounded-xl p-4">
+      <div class="text-xs font-bold text-gray-400 uppercase mb-3">Notional by Ticker (Buys)</div>
+      ${(()=>{
+        const byTicker = {};
+        trades.filter(t=>t.side==='BUY').forEach(t=>{
+          const k = t.ticker.toUpperCase();
+          byTicker[k] = (byTicker[k]||0) + parseFloat(t.qty)*parseFloat(t.price);
+        });
+        const sorted = Object.entries(byTicker).sort((a,b)=>b[1]-a[1]);
+        const total  = sorted.reduce((s,[,v])=>s+v, 0);
+        return sorted.map(([tk,v])=>`
+        <div class="flex items-center gap-2 mb-2">
+          <span class="text-xs text-white font-semibold w-12 flex-shrink-0">${tk}</span>
+          <div class="flex-1 h-2 bg-[#1a2540] rounded-full overflow-hidden">
+            <div class="h-full bg-cyan-500 rounded-full transition-all" style="width:${(v/total*100).toFixed(1)}%"></div>
+          </div>
+          <span class="text-[10px] font-mono text-gray-400 w-24 text-right flex-shrink-0">$${v.toLocaleString('en-US',{maximumFractionDigits:0})} (${(v/total*100).toFixed(0)}%)</span>
+        </div>`).join('');
+      })()}
+    </div>
+
+    <!-- By Strategy -->
+    <div class="bg-[#0d1221] border border-[#1e2d4a] rounded-xl p-4">
+      <div class="text-xs font-bold text-gray-400 uppercase mb-3">Trades by Strategy</div>
+      ${(()=>{
+        const byStrat = {};
+        trades.forEach(t => {
+          const k = t.strategy || 'Untagged';
+          if (!byStrat[k]) byStrat[k] = { count:0, notional:0 };
+          byStrat[k].count++;
+          byStrat[k].notional += parseFloat(t.qty)*parseFloat(t.price);
+        });
+        const sorted = Object.entries(byStrat).sort((a,b)=>b[1].count-a[1].count);
+        const maxCount = sorted[0]?.[1].count || 1;
+        const COLORS = ['bg-blue-500','bg-purple-500','bg-cyan-500','bg-emerald-500','bg-amber-500','bg-pink-500'];
+        return sorted.map(([strat,d],i)=>`
+        <div class="flex items-center gap-2 mb-2">
+          <span class="text-[10px] text-gray-300 w-24 flex-shrink-0 truncate">${strat}</span>
+          <div class="flex-1 h-2 bg-[#1a2540] rounded-full overflow-hidden">
+            <div class="h-full ${COLORS[i%COLORS.length]} rounded-full" style="width:${(d.count/maxCount*100)}%"></div>
+          </div>
+          <span class="text-[10px] font-mono text-gray-500 w-14 text-right flex-shrink-0">${d.count} trades</span>
+        </div>`).join('');
+      })()}
+    </div>
+
+    <!-- Timeline: trades per day -->
+    <div class="col-span-2 bg-[#0d1221] border border-[#1e2d4a] rounded-xl p-4">
+      <div class="text-xs font-bold text-gray-400 uppercase mb-3">Activity Timeline</div>
+      ${(()=>{
+        const byDate = {};
+        trades.forEach(t => {
+          if (!byDate[t.date]) byDate[t.date] = { buy:0, sell:0 };
+          t.side==='BUY' ? byDate[t.date].buy++ : byDate[t.date].sell++;
+        });
+        const sorted = Object.entries(byDate).sort((a,b)=>a[0].localeCompare(b[0]));
+        if (!sorted.length) return '<div class="text-gray-600 text-xs">No dates found</div>';
+        const maxCount = Math.max(...sorted.map(([,d])=>d.buy+d.sell), 1);
+        return `<div class="flex items-end gap-1 h-16">
+          ${sorted.map(([date,d])=>`
+          <div class="flex-1 flex flex-col items-center gap-0.5" title="${date}: ${d.buy} buy, ${d.sell} sell">
+            <div class="w-full flex flex-col gap-0.5">
+              <div class="bg-emerald-500 rounded-t" style="height:${(d.buy/(maxCount)*40)}px;min-height:${d.buy?'3px':'0'}"></div>
+              <div class="bg-red-500 rounded-b" style="height:${(d.sell/(maxCount)*40)}px;min-height:${d.sell?'3px':'0'}"></div>
+            </div>
+            <div class="text-[8px] text-gray-600 transform -rotate-45 origin-top-left mt-1 truncate w-6">${date.slice(5)}</div>
+          </div>`).join('')}
+        </div>
+        <div class="flex gap-4 mt-2 text-[10px]">
+          <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-sm bg-emerald-500"></span>Buy</span>
+          <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-sm bg-red-500"></span>Sell</span>
+        </div>`;
+      })()}
+    </div>
+  </div>`}
+</div>
+
+<!-- ════ ADD / EDIT MODAL ══════════════════════════════════════════════ -->
+<div id="trade-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
+  <div class="absolute inset-0 bg-black/70 backdrop-blur-sm" onclick="window._tradeCloseForm()"></div>
+  <div class="relative bg-[#0d1221] border border-[#1e2d4a] rounded-2xl w-full max-w-lg shadow-2xl">
+    <div class="flex items-center justify-between px-5 py-4 border-b border-[#1e2d4a]">
+      <span id="trade-modal-title" class="text-base font-bold text-white">添加交易 Add Trade</span>
+      <button onclick="window._tradeCloseForm()" class="text-gray-500 hover:text-white w-7 h-7 flex items-center justify-center rounded-lg hover:bg-[#1a2540] transition">
+        <i class="fas fa-times text-sm"></i>
+      </button>
+    </div>
+    <form id="trade-form" onsubmit="window._tradeSubmit(event)" class="p-5 space-y-4">
+      <input type="hidden" id="trade-edit-idx" value="">
+
+      <div class="grid grid-cols-2 gap-3">
+        <!-- Date -->
+        <div>
+          <label class="block text-[10px] text-gray-500 uppercase tracking-wider mb-1">Date <span class="text-red-400">*</span></label>
+          <input id="tf-date" type="date" required
+            class="w-full bg-[#0a0e1a] border border-[#1e2d4a] rounded-lg px-3 py-2 text-sm text-white
+                   focus:border-cyan-500/60 focus:outline-none focus:ring-1 focus:ring-cyan-500/30">
+        </div>
+        <!-- Side -->
+        <div>
+          <label class="block text-[10px] text-gray-500 uppercase tracking-wider mb-1">Side <span class="text-red-400">*</span></label>
+          <div class="flex gap-2">
+            <label class="flex-1 cursor-pointer">
+              <input type="radio" name="trade-side" value="BUY" id="tf-buy" class="sr-only peer" required>
+              <div class="peer-checked:bg-emerald-600 peer-checked:border-emerald-500 peer-checked:text-white
+                          bg-[#0a0e1a] border border-[#1e2d4a] text-gray-400
+                          rounded-lg py-2 text-center text-sm font-bold transition-all select-none">BUY</div>
+            </label>
+            <label class="flex-1 cursor-pointer">
+              <input type="radio" name="trade-side" value="SELL" id="tf-sell" class="sr-only peer">
+              <div class="peer-checked:bg-red-600 peer-checked:border-red-500 peer-checked:text-white
+                          bg-[#0a0e1a] border border-[#1e2d4a] text-gray-400
+                          rounded-lg py-2 text-center text-sm font-bold transition-all select-none">SELL</div>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-2 gap-3">
+        <!-- Ticker -->
+        <div>
+          <label class="block text-[10px] text-gray-500 uppercase tracking-wider mb-1">Ticker <span class="text-red-400">*</span></label>
+          <input id="tf-ticker" type="text" required placeholder="e.g. NVDA"
+            class="w-full bg-[#0a0e1a] border border-[#1e2d4a] rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600
+                   focus:border-cyan-500/60 focus:outline-none focus:ring-1 focus:ring-cyan-500/30 uppercase">
+        </div>
+        <!-- Exchange -->
+        <div>
+          <label class="block text-[10px] text-gray-500 uppercase tracking-wider mb-1">Exchange</label>
+          <select id="tf-exchange"
+            class="w-full bg-[#0a0e1a] border border-[#1e2d4a] rounded-lg px-3 py-2 text-sm text-white
+                   focus:border-cyan-500/60 focus:outline-none">
+            <option value="">Select…</option>
+            <option value="NASDAQ">NASDAQ</option>
+            <option value="NYSE">NYSE</option>
+            <option value="AMEX">AMEX</option>
+            <option value="OTC">OTC</option>
+            <option value="LSE">LSE</option>
+            <option value="HKEX">HKEX</option>
+            <option value="SSE">SSE (A股)</option>
+            <option value="SZSE">SZSE (A股)</option>
+            <option value="OTHER">Other</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-2 gap-3">
+        <!-- Qty -->
+        <div>
+          <label class="block text-[10px] text-gray-500 uppercase tracking-wider mb-1">Quantity <span class="text-red-400">*</span></label>
+          <input id="tf-qty" type="number" required min="0.0001" step="any" placeholder="100"
+            class="w-full bg-[#0a0e1a] border border-[#1e2d4a] rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600
+                   focus:border-cyan-500/60 focus:outline-none focus:ring-1 focus:ring-cyan-500/30">
+        </div>
+        <!-- Price -->
+        <div>
+          <label class="block text-[10px] text-gray-500 uppercase tracking-wider mb-1">Price (USD) <span class="text-red-400">*</span></label>
+          <input id="tf-price" type="number" required min="0.0001" step="any" placeholder="150.00"
+            class="w-full bg-[#0a0e1a] border border-[#1e2d4a] rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600
+                   focus:border-cyan-500/60 focus:outline-none focus:ring-1 focus:ring-cyan-500/30">
+        </div>
+      </div>
+
+      <div class="grid grid-cols-2 gap-3">
+        <!-- Commission -->
+        <div>
+          <label class="block text-[10px] text-gray-500 uppercase tracking-wider mb-1">Commission ($)</label>
+          <input id="tf-commission" type="number" min="0" step="any" placeholder="1.00"
+            class="w-full bg-[#0a0e1a] border border-[#1e2d4a] rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600
+                   focus:border-cyan-500/60 focus:outline-none focus:ring-1 focus:ring-cyan-500/30">
+        </div>
+        <!-- Strategy tag -->
+        <div>
+          <label class="block text-[10px] text-gray-500 uppercase tracking-wider mb-1">Strategy Tag</label>
+          <input id="tf-strategy" type="text" placeholder="e.g. BTD, Momentum"
+            class="w-full bg-[#0a0e1a] border border-[#1e2d4a] rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600
+                   focus:border-cyan-500/60 focus:outline-none focus:ring-1 focus:ring-cyan-500/30">
+        </div>
+      </div>
+
+      <!-- Notes -->
+      <div>
+        <label class="block text-[10px] text-gray-500 uppercase tracking-wider mb-1">Notes / Thesis</label>
+        <textarea id="tf-notes" rows="2" placeholder="Entry rationale, catalyst, stop loss level…"
+          class="w-full bg-[#0a0e1a] border border-[#1e2d4a] rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 resize-none
+                 focus:border-cyan-500/60 focus:outline-none focus:ring-1 focus:ring-cyan-500/30"></textarea>
+      </div>
+
+      <!-- Notional preview -->
+      <div id="tf-notional-preview" class="hidden bg-[#0a0e1a] border border-[#1e2d4a] rounded-lg px-3 py-2 text-sm">
+        <span class="text-gray-500">Notional: </span>
+        <span id="tf-notional-val" class="text-white font-mono font-bold"></span>
+      </div>
+
+      <div class="flex gap-3 pt-1">
+        <button type="button" onclick="window._tradeCloseForm()"
+          class="flex-1 py-2.5 rounded-lg border border-[#1e2d4a] text-gray-400 hover:text-white hover:border-gray-500 transition text-sm">
+          Cancel
+        </button>
+        <button type="submit"
+          class="flex-1 py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white font-semibold rounded-lg transition text-sm">
+          <i class="fas fa-check mr-1"></i>Save Trade
+        </button>
+      </div>
+    </form>
+  </div>
+</div>`;
+
+    // ── wire up notional preview ────────────────────────────────────────
+    function updatePreview() {
+      const q = parseFloat(document.getElementById('tf-qty')?.value);
+      const p = parseFloat(document.getElementById('tf-price')?.value);
+      const preview = document.getElementById('tf-notional-preview');
+      const val     = document.getElementById('tf-notional-val');
+      if (preview && val && !isNaN(q) && !isNaN(p) && q > 0 && p > 0) {
+        val.textContent = '$' + (q*p).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+        preview.classList.remove('hidden');
+      } else if (preview) {
+        preview.classList.add('hidden');
+      }
+    }
+    document.getElementById('tf-qty')?.addEventListener('input', updatePreview);
+    document.getElementById('tf-price')?.addEventListener('input', updatePreview);
+
+    // uppercase ticker input
+    document.getElementById('tf-ticker')?.addEventListener('input', function(){ this.value = this.value.toUpperCase(); });
+  }
+
+  // ── global handlers ───────────────────────────────────────────────────
+  window._tradeRender = render;
+
+  window._tradeOpenForm = function(editIdx) {
+    const modal = document.getElementById('trade-modal');
+    const title = document.getElementById('trade-modal-title');
+    const idxField = document.getElementById('trade-edit-idx');
+    if (!modal) return;
+
+    // reset form
+    document.getElementById('trade-form').reset();
+    document.getElementById('tf-notional-preview')?.classList.add('hidden');
+    document.getElementById('tf-date').value = new Date().toISOString().slice(0,10);
+
+    if (editIdx !== undefined) {
+      const trades = loadTrades();
+      const t = trades[editIdx];
+      if (!t) return;
+      title.textContent = '编辑交易 Edit Trade';
+      idxField.value = editIdx;
+      document.getElementById('tf-date').value   = t.date;
+      document.getElementById('tf-ticker').value = t.ticker;
+      document.getElementById('tf-exchange').value = t.exchange || '';
+      document.getElementById('tf-qty').value    = t.qty;
+      document.getElementById('tf-price').value  = t.price;
+      document.getElementById('tf-commission').value = t.commission || '';
+      document.getElementById('tf-strategy').value   = t.strategy || '';
+      document.getElementById('tf-notes').value       = t.notes || '';
+      const sideEl = document.getElementById(t.side === 'BUY' ? 'tf-buy' : 'tf-sell');
+      if (sideEl) sideEl.checked = true;
+    } else {
+      title.textContent = '添加交易 Add Trade';
+      idxField.value = '';
+    }
+    modal.classList.remove('hidden');
+    setTimeout(() => document.getElementById('tf-ticker')?.focus(), 50);
+  };
+
+  window._tradeCloseForm = function() {
+    document.getElementById('trade-modal')?.classList.add('hidden');
+  };
+
+  window._tradeSubmit = function(e) {
+    e.preventDefault();
+    const side = document.querySelector('input[name="trade-side"]:checked')?.value;
+    if (!side) { alert('Please select BUY or SELL'); return; }
+    const trade = {
+      id:         genId(),
+      date:       document.getElementById('tf-date').value,
+      ticker:     document.getElementById('tf-ticker').value.trim().toUpperCase(),
+      exchange:   document.getElementById('tf-exchange').value,
+      side,
+      qty:        document.getElementById('tf-qty').value,
+      price:      document.getElementById('tf-price').value,
+      commission: document.getElementById('tf-commission').value || '0',
+      strategy:   document.getElementById('tf-strategy').value.trim(),
+      notes:      document.getElementById('tf-notes').value.trim(),
+    };
+    const trades  = loadTrades();
+    const editIdx = document.getElementById('trade-edit-idx').value;
+    if (editIdx !== '') {
+      trades[parseInt(editIdx)] = { ...trades[parseInt(editIdx)], ...trade };
+    } else {
+      trades.push(trade);
+    }
+    saveTrades(trades);
+    window._tradeCloseForm();
+    render();
+  };
+
+  window._tradeDelete = function(idx) {
+    if (!confirm('Delete this trade entry?')) return;
+    const trades = loadTrades();
+    trades.splice(idx, 1);
+    saveTrades(trades);
+    render();
+  };
+
+  window._tradeClearAll = function() {
+    if (!confirm('Clear ALL trade entries? This cannot be undone.')) return;
+    saveTrades([]);
+    render();
+  };
+
+  // initial render
+  render();
 }
 
 // ╔══════════════════════════════════════════════════════════════════════╗
