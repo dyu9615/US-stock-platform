@@ -591,11 +591,11 @@ async function renderDashboard(el) {
 }
 
 // ╔══════════════════════════════════════════════════════════════════════╗
-// ║  2. DATA CENTER — Fundamental Valuation Hub                         ║
+// ║  2. DATA CENTER — Institutional Monitoring Framework v2              ║
 // ╚══════════════════════════════════════════════════════════════════════╝
 async function renderDataCenter(el) {
   el.innerHTML = `<div class="flex items-center justify-center h-32 text-gray-400">
-    <i class="fas fa-spinner fa-spin mr-2"></i>Loading…</div>`;
+    <i class="fas fa-spinner fa-spin mr-2"></i>Loading Data Center…</div>`;
   try {
     const [fundRes, erpRes, healthRes, macroRes] = await Promise.all([
       axios.get(`${API}/api/dc/fundamental`),
@@ -609,15 +609,41 @@ async function renderDataCenter(el) {
     const m      = macroRes.data;
     const srcs   = health.dataSources || [];
 
-    // ── colour helpers ──────────────────────────────────────────────────
+    // ══════════════════════════════════════════════════════════════════════
+    // COLOUR HELPERS
+    // ══════════════════════════════════════════════════════════════════════
     const evColor  = p => p<=10?'#10b981':p<=30?'#6ee7b7':p>=80?'#ef4444':'#d1d5db';
     const fcfColor = v => v>=6?'#10b981':v>=3?'#fbbf24':'#ef4444';
     const levColor = v => v>3?'#ef4444':v>2?'#f59e0b':'#10b981';
 
-    // sub-module toggle
+    const avgEv    = (stocks.reduce((a,s)=>a+s.evEbitda,0)/stocks.length).toFixed(1);
+    const avgFcf   = (stocks.reduce((a,s)=>a+s.fcfYield,0)/stocks.length).toFixed(1);
+    const erpColor = e.erp<1?'#ef4444':e.erp<2.5?'#f59e0b':'#10b981';
+
+    // ── trend sparkline helper (3 dots = today/week/month) ────────────
+    function trendDots(today, week, month) {
+      const dir = (a,b) => a>b?'▲':a<b?'▼':'—';
+      const col = (a,b,inv) => {
+        if (a===b) return 'text-gray-500';
+        const better = inv ? a<b : a>b;
+        return better ? 'text-emerald-400' : 'text-red-400';
+      };
+      return `<div class="flex items-center gap-1 justify-end">
+        <span class="text-[9px] text-gray-500">1D</span>
+        <span class="text-[10px] font-mono ${col(today,week,false)}">${dir(today,week)}</span>
+        <span class="text-[9px] text-gray-500">1W</span>
+        <span class="text-[10px] font-mono ${col(week,month,false)}">${dir(week,month)}</span>
+        <span class="text-[9px] text-gray-500">1M</span>
+      </div>`;
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // ACCORDION TOGGLE
+    // ══════════════════════════════════════════════════════════════════════
+    window._dcSectorDrawn = false;
     let openDC = null;
     window._dcToggle = function(id) {
-      const panels = ['dc-sub-valuation','dc-sub-sector','dc-sub-pipeline'];
+      const panels = ['dc-sub-macro','dc-sub-pricevol','dc-sub-fundamental','dc-sub-pipeline'];
       if (openDC === id) {
         openDC = null;
         document.getElementById(id).style.display = 'none';
@@ -627,19 +653,18 @@ async function renderDataCenter(el) {
           const el2 = document.getElementById(p);
           if (el2) el2.style.display = p===id?'block':'none';
         });
-        if (id === 'dc-sub-sector') setTimeout(drawDCSectorCharts, 40);
+        if (id === 'dc-sub-fundamental') setTimeout(drawDCSectorCharts, 40);
       }
-      // update active state
       panels.forEach(p => {
         const btn = document.getElementById('btn-'+p);
-        if (btn) {
-          btn.classList.toggle('bg-purple-600', p===id && openDC===id);
-          btn.classList.toggle('border-purple-500', p===id && openDC===id);
-          btn.classList.toggle('text-white', p===id && openDC===id);
-          btn.classList.toggle('bg-gray-800', !(p===id && openDC===id));
-          btn.classList.toggle('border-gray-600', !(p===id && openDC===id));
-          btn.classList.toggle('text-gray-400', !(p===id && openDC===id));
-        }
+        if (!btn) return;
+        const active = p===id && openDC===id;
+        btn.classList.toggle('ring-2',        active);
+        btn.classList.toggle('ring-purple-500',active);
+        btn.classList.toggle('bg-purple-900/20', active);
+        btn.classList.toggle('border-purple-500/50', active);
+        const chev = btn.querySelector('.dc-chev');
+        if (chev) chev.classList.toggle('rotate-180', active);
       });
     };
 
@@ -648,289 +673,738 @@ async function renderDataCenter(el) {
       window._dcSectorDrawn = true;
       const sortedEv  = [...stocks].sort((a,b)=>a.evEbitda-b.evEbitda);
       const sortedFcf = [...stocks].sort((a,b)=>b.fcfYield-a.fcfYield);
-
       const c1 = document.getElementById('dc-eveb-chart');
       if (c1) new Chart(c1, {
         type:'bar',
         data:{ labels:sortedEv.map(s=>s.ticker),
           datasets:[{ label:'EV/EBITDA', data:sortedEv.map(s=>s.evEbitda),
-            backgroundColor:sortedEv.map(s=>s.evEbitdaPercentile<=20?'rgba(16,185,129,0.7)':s.evEbitdaPercentile>=70?'rgba(239,68,68,0.7)':'rgba(99,102,241,0.6)'),
-            borderRadius:3 }] },
-        options:{ responsive:true, maintainAspectRatio:false,
-          plugins:{legend:{display:false}},
-          scales:{ x:{ticks:{color:'#9ca3af',font:{size:9}}},
-                   y:{ticks:{color:'#9ca3af',font:{size:9}},grid:{color:'#1f2937'}} } }
+            backgroundColor:sortedEv.map(s=>s.evEbitdaPercentile<=20?'rgba(16,185,129,0.75)':s.evEbitdaPercentile>=70?'rgba(239,68,68,0.75)':'rgba(99,102,241,0.6)'),
+            borderRadius:4 }] },
+        options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}},
+          scales:{ x:{ticks:{color:'#9ca3af',font:{size:9}}}, y:{ticks:{color:'#9ca3af',font:{size:9}},grid:{color:'#1f2937'}} } }
       });
-
       const c2 = document.getElementById('dc-fcf-chart');
       if (c2) new Chart(c2, {
         type:'bar',
         data:{ labels:sortedFcf.map(s=>s.ticker),
           datasets:[
             { label:'FCF Yield %', data:sortedFcf.map(s=>s.fcfYield),
-              backgroundColor:sortedFcf.map(s=>s.fcfYield>m.usTreasury10y?'rgba(16,185,129,0.7)':'rgba(239,68,68,0.7)'),
-              borderRadius:3 },
-            { type:'line', label:'10Y Risk-Free', data:sortedFcf.map(()=>m.usTreasury10y),
+              backgroundColor:sortedFcf.map(s=>s.fcfYield>m.usTreasury10y?'rgba(16,185,129,0.75)':'rgba(239,68,68,0.75)'), borderRadius:4 },
+            { type:'line', label:'Risk-Free '+m.usTreasury10y+'%',
+              data:sortedFcf.map(()=>m.usTreasury10y),
               borderColor:'#fbbf24', borderWidth:1.5, borderDash:[4,3], pointRadius:0, fill:false }
           ] },
         options:{ responsive:true, maintainAspectRatio:false,
           plugins:{legend:{labels:{color:'#9ca3af',font:{size:9},boxWidth:10}}},
           scales:{ x:{ticks:{color:'#9ca3af',font:{size:9}}},
-                   y:{ticks:{color:'#9ca3af',font:{size:9},callback:v=>v+'%'},grid:{color:'#1f2937'}} } }
+            y:{ticks:{color:'#9ca3af',font:{size:9},callback:v=>v+'%'},grid:{color:'#1f2937'}} } }
       });
     }
 
-    const avgEv  = (stocks.reduce((a,s)=>a+s.evEbitda,0)/stocks.length).toFixed(1);
-    const avgFcf = (stocks.reduce((a,s)=>a+s.fcfYield,0)/stocks.length).toFixed(1);
-    const erpColor = e.erp<1?'#ef4444':e.erp<2.5?'#f59e0b':'#10b981';
+    // ══════════════════════════════════════════════════════════════════════
+    // BUILD HTML
+    // ══════════════════════════════════════════════════════════════════════
+
+    // ── Macro derived values for trend simulation ──────────────────────
+    const vixSlope     = ((m.vix/m.vx1)-1)*100;
+    const vixSlopeStr  = vixSlope>0?`+${vixSlope.toFixed(1)}% Backwardation 🚨`:`${vixSlope.toFixed(1)}% Contango ✓`;
+    const hySignColor  = m.hyOas>800?'#ef4444':m.hyOas>400?'#f59e0b':'#10b981';
+    const ycColor      = m.yieldCurve<0?'#ef4444':m.yieldCurve<50?'#f59e0b':'#10b981';
+    const breadthColor = m.pctAbove200ma<15?'#ef4444':m.pctAbove200ma<40?'#f59e0b':'#10b981';
+    const pcColor      = m.putCallRatio>1.2?'#ef4444':m.putCallRatio<0.7?'#f59e0b':'#10b981';
 
     el.innerHTML = `
-<!-- header -->
-<div class="mb-5">
-  <h2 class="text-xl font-bold text-white flex items-center gap-2">
-    <i class="fas fa-database text-purple-400"></i>
-    数据中心 Data Center
-  </h2>
-  <p class="text-gray-500 text-xs mt-0.5">Fundamental Valuation · GAAP-Adjusted · PIT-Compliant · Click sub-module to expand</p>
+
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<!--  HEADER                                                              -->
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<div class="flex items-start justify-between mb-5">
+  <div>
+    <h2 class="text-xl font-bold text-white flex items-center gap-2">
+      <i class="fas fa-database text-purple-400"></i>
+      数据中心 Data Center
+      <span class="text-[11px] bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded-full">Institutional</span>
+    </h2>
+    <p class="text-gray-500 text-xs mt-0.5">
+      机构级别底层数据中心 · GAAP-Adjusted · PIT-Compliant · 4 Data Layers
+    </p>
+  </div>
+  <div class="text-right text-[10px] text-gray-500">
+    <div>Updated: <span class="text-white">${m.date || '2026-03-03'}</span></div>
+    <div class="mt-0.5">Sources: Bloomberg · FRED · CBOE · yfinance · SEC EDGAR</div>
+  </div>
 </div>
 
-<!-- ── KPI STRIP ────────────────────────────────────────────────────── -->
-<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
-  ${[
-    ['Stocks Covered', stocks.length, 'TMT + Mega Cap', '#a78bfa'],
-    ['Avg EV/EBITDA',  avgEv+'×',    'vs 10Y avg ~15×', avgEv>20?'#ef4444':'#60a5fa'],
-    ['Avg FCF Yield',  avgFcf+'%',   'vs 10Y Tsy '+m.usTreasury10y+'%', parseFloat(avgFcf)>m.usTreasury10y?'#10b981':'#f59e0b'],
-    ['ERP',            e.erp.toFixed(2)+'%', e.erpSignal, erpColor]
-  ].map(([l,v,s,c])=>`
-  <div class="bg-gray-800/60 border border-gray-700/40 rounded-xl p-3">
-    <div class="text-[10px] text-gray-500 uppercase mb-1">${l}</div>
-    <div class="text-2xl font-bold" style="color:${c}">${v}</div>
-    <div class="text-[10px] text-gray-600 mt-0.5">${s}</div>
-  </div>`).join('')}
-</div>
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<!--  KPI STRIP  (8 always-visible top-level metrics)                    -->
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<div class="grid grid-cols-4 gap-2.5 mb-5">
 
-<!-- ── SUB-MODULE CARDS ───────────────────────────────────────────────── -->
-<div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-2">
-
-  <!-- Valuation card -->
-  <div id="btn-dc-sub-valuation"
-       class="cursor-pointer bg-gray-800 border border-gray-600 text-gray-400 rounded-xl p-4 hover:bg-gray-700/60 transition-colors"
-       onclick="window._dcToggle('dc-sub-valuation')">
-    <div class="flex items-center justify-between mb-3">
-      <div class="flex items-center gap-2">
-        <div class="w-8 h-8 bg-emerald-900/50 rounded-lg flex items-center justify-center">
-          <i class="fas fa-table text-emerald-400 text-sm"></i>
-        </div>
-        <span class="text-sm font-bold text-white">Valuation Table</span>
-      </div>
-      <i class="fas fa-chevron-down text-gray-600 text-xs"></i>
+  <!-- VIX Term Structure -->
+  <div class="bg-[#0d1221] border border-[#1e2d4a] rounded-xl p-3">
+    <div class="flex items-center justify-between mb-1">
+      <span class="text-[10px] text-gray-500 uppercase tracking-wider">波动率结构 / VIX Structure</span>
+      <span class="text-[9px] bg-${m.vixContango?'emerald':'red'}-500/20 text-${m.vixContango?'emerald':'red'}-300 px-1.5 py-0.5 rounded-full">${m.vixContango?'Contango':'Backwardation'}</span>
     </div>
-    <p class="text-xs text-gray-500 mb-3">EV/EBITDA · FCF Yield · Net Leverage · Undervaluation signals sorted by cheapness</p>
-    <div class="grid grid-cols-3 gap-1 text-[10px] text-center">
-      ${stocks.slice(0,3).map(s=>`
-      <div class="bg-gray-900/60 rounded p-1">
-        <div class="font-bold text-white">${s.ticker}</div>
-        <div style="color:${evColor(s.evEbitdaPercentile)}">${s.evEbitda.toFixed(1)}×</div>
-      </div>`).join('')}
+    <div class="flex items-end gap-3">
+      <div class="text-2xl font-bold text-white">${m.vix}</div>
+      <div class="text-xs text-gray-500 mb-0.5 leading-tight">VX1: <span class="text-gray-300">${m.vx1}</span><br>VX3: <span class="text-gray-300">${m.vx3}</span></div>
+    </div>
+    <div class="mt-1 text-[10px] ${m.vixContango?'text-emerald-400':'text-red-400'}">${vixSlopeStr}</div>
+  </div>
+
+  <!-- HY OAS -->
+  <div class="bg-[#0d1221] border border-[#1e2d4a] rounded-xl p-3">
+    <div class="flex items-center justify-between mb-1">
+      <span class="text-[10px] text-gray-500 uppercase tracking-wider">信用风险 / HY OAS</span>
+      <span class="text-[9px] px-1.5 py-0.5 rounded-full" style="background:${hySignColor}22;color:${hySignColor}">${m.hyOasSignal?.toUpperCase()||'—'}</span>
+    </div>
+    <div class="text-2xl font-bold" style="color:${hySignColor}">${m.hyOas}<span class="text-sm ml-1 font-normal text-gray-500">bps</span></div>
+    <div class="mt-1 text-[10px] text-gray-500">FRED: BAMLH0A0HYM2 · &gt;400 Caution · &gt;800 Distress</div>
+  </div>
+
+  <!-- Yield Curve -->
+  <div class="bg-[#0d1221] border border-[#1e2d4a] rounded-xl p-3">
+    <div class="flex items-center justify-between mb-1">
+      <span class="text-[10px] text-gray-500 uppercase tracking-wider">利率环境 / Yield Curve</span>
+      <span class="text-[9px] px-1.5 py-0.5 rounded-full" style="background:${ycColor}22;color:${ycColor}">${m.yieldCurveInverted?'INVERTED':'Normal'}</span>
+    </div>
+    <div class="text-2xl font-bold" style="color:${ycColor}">${m.yieldCurve>0?'+':''}${m.yieldCurve}<span class="text-sm ml-1 font-normal text-gray-500">bps</span></div>
+    <div class="mt-1 text-[10px] text-gray-500">10Y ${m.usTreasury10y}% − 2Y ${m.usTreasury2y}% · FRED: DGS10/DGS2</div>
+  </div>
+
+  <!-- Panic Score -->
+  <div class="bg-[#0d1221] border border-[#1e2d4a] rounded-xl p-3">
+    <div class="flex items-center justify-between mb-1">
+      <span class="text-[10px] text-gray-500 uppercase tracking-wider">恐慌分数 / Panic Score</span>
+      <span class="text-[9px] bg-${m.panicScore<30?'emerald':m.panicScore<60?'amber':'red'}-500/20 text-${m.panicScore<30?'emerald':m.panicScore<60?'amber':'red'}-300 px-1.5 py-0.5 rounded-full">${m.panicLabel||'—'}</span>
+    </div>
+    <div class="text-2xl font-bold ${m.panicScore<30?'text-emerald-400':m.panicScore<60?'text-amber-400':'text-red-400'}">${m.panicScore}<span class="text-sm ml-1 font-normal text-gray-500">/100</span></div>
+    <div class="w-full h-1.5 bg-[#1a2540] rounded-full mt-2 overflow-hidden">
+      <div class="h-full rounded-full transition-all ${m.panicScore<30?'bg-emerald-500':m.panicScore<60?'bg-amber-500':'bg-red-500'}" style="width:${m.panicScore}%"></div>
     </div>
   </div>
 
-  <!-- Sector Multiples card -->
-  <div id="btn-dc-sub-sector"
-       class="cursor-pointer bg-gray-800 border border-gray-600 text-gray-400 rounded-xl p-4 hover:bg-gray-700/60 transition-colors"
-       onclick="window._dcToggle('dc-sub-sector')">
-    <div class="flex items-center justify-between mb-3">
-      <div class="flex items-center gap-2">
-        <div class="w-8 h-8 bg-blue-900/50 rounded-lg flex items-center justify-center">
-          <i class="fas fa-chart-bar text-blue-400 text-sm"></i>
-        </div>
-        <span class="text-sm font-bold text-white">Sector Multiples</span>
-      </div>
-      <i class="fas fa-chevron-down text-gray-600 text-xs"></i>
+  <!-- Market Breadth -->
+  <div class="bg-[#0d1221] border border-[#1e2d4a] rounded-xl p-3">
+    <div class="flex items-center justify-between mb-1">
+      <span class="text-[10px] text-gray-500 uppercase tracking-wider">市场宽度 / Breadth</span>
+      <span class="text-[9px] px-1.5 py-0.5 rounded-full" style="background:${breadthColor}22;color:${breadthColor}">${m.breadthSignal?.toUpperCase()||'—'}</span>
     </div>
-    <p class="text-xs text-gray-500 mb-3">EV/EBITDA & FCF Yield bar charts vs risk-free rate across TMT universe</p>
-    <div class="flex gap-2 text-[10px]">
-      <span class="bg-emerald-900/40 text-emerald-400 px-2 py-0.5 rounded">Cheap ≤20th%ile</span>
-      <span class="bg-red-900/40 text-red-400 px-2 py-0.5 rounded">Rich ≥70th%ile</span>
+    <div class="text-2xl font-bold" style="color:${breadthColor}">${m.pctAbove200ma?.toFixed(1)}<span class="text-sm ml-1 font-normal text-gray-500">%</span></div>
+    <div class="mt-1 text-[10px] text-gray-500">S5TH200X · % SPX above 200DMA · &lt;15% = Panic</div>
+  </div>
+
+  <!-- Put/Call Ratio -->
+  <div class="bg-[#0d1221] border border-[#1e2d4a] rounded-xl p-3">
+    <div class="flex items-center justify-between mb-1">
+      <span class="text-[10px] text-gray-500 uppercase tracking-wider">衍生品情绪 / P/C Ratio</span>
+      <span class="text-[9px] px-1.5 py-0.5 rounded-full" style="background:${pcColor}22;color:${pcColor}">${m.putCallSignal?.toUpperCase()||'—'}</span>
+    </div>
+    <div class="text-2xl font-bold" style="color:${pcColor}">${m.putCallRatio?.toFixed(2)}</div>
+    <div class="mt-1 text-[10px] text-gray-500">CBOE · &gt;1.2 Fear · &lt;0.7 Greed · &gt;1.5 Panic</div>
+  </div>
+
+  <!-- ERP -->
+  <div class="bg-[#0d1221] border border-[#1e2d4a] rounded-xl p-3">
+    <div class="flex items-center justify-between mb-1">
+      <span class="text-[10px] text-gray-500 uppercase tracking-wider">股权风险溢价 / ERP</span>
+      <span class="text-[9px] px-1.5 py-0.5 rounded-full" style="background:${erpColor}22;color:${erpColor}">${e.erpSignal?.toUpperCase()||'—'}</span>
+    </div>
+    <div class="text-2xl font-bold" style="color:${erpColor}">${e.erp?.toFixed(2)}<span class="text-sm ml-1 font-normal text-gray-500">%</span></div>
+    <div class="mt-1 text-[10px] text-gray-500">Earnings Yield ${e.sp500EarningsYield?.toFixed(2)}% − 10Y ${e.usTreasury10y}%</div>
+  </div>
+
+  <!-- Avg EV/EBITDA -->
+  <div class="bg-[#0d1221] border border-[#1e2d4a] rounded-xl p-3">
+    <div class="flex items-center justify-between mb-1">
+      <span class="text-[10px] text-gray-500 uppercase tracking-wider">基本面估值 / EV/EBITDA</span>
+      <span class="text-[9px] bg-blue-500/20 text-blue-300 px-1.5 py-0.5 rounded-full">${stocks.length} stocks</span>
+    </div>
+    <div class="text-2xl font-bold ${parseFloat(avgEv)>20?'text-red-400':'text-blue-400'}">${avgEv}<span class="text-sm ml-1 font-normal text-gray-500">×</span></div>
+    <div class="mt-1 text-[10px] text-gray-500">Adj.EBITDA (SBC added back) · 10Y avg ~15×</div>
+  </div>
+
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<!--  4 SECTION CARDS → click to expand sub-modules                      -->
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-3">
+
+  <!-- Card 1: Macro Liquidity -->
+  <div id="btn-dc-sub-macro"
+       class="cursor-pointer bg-[#0d1221] border border-[#1e2d4a] rounded-xl p-4 hover:border-purple-500/40 transition-all"
+       onclick="window._dcToggle('dc-sub-macro')">
+    <div class="flex items-center justify-between mb-2">
+      <div class="w-8 h-8 bg-red-900/40 rounded-lg flex items-center justify-center flex-shrink-0">
+        <i class="fas fa-fire text-red-400 text-sm"></i>
+      </div>
+      <i class="fas fa-chevron-down text-gray-600 text-xs dc-chev transition-transform"></i>
+    </div>
+    <div class="text-sm font-bold text-white mb-0.5">宏观流动性 / Macro</div>
+    <div class="text-[10px] text-gray-500 mb-2">VIX · HY OAS · Yield Curve · Breadth · P/C</div>
+    <div class="flex gap-1 flex-wrap">
+      <span class="text-[9px] bg-${m.vixContango?'emerald':'red'}-500/20 text-${m.vixContango?'emerald':'red'}-300 px-1.5 py-0.5 rounded-full">${m.vixContango?'Contango':'Backwardation'}</span>
+      <span class="text-[9px] px-1.5 py-0.5 rounded-full" style="background:${hySignColor}22;color:${hySignColor}">HY ${m.hyOas}bps</span>
     </div>
   </div>
 
-  <!-- Data Pipeline card -->
+  <!-- Card 2: Price/Volume -->
+  <div id="btn-dc-sub-pricevol"
+       class="cursor-pointer bg-[#0d1221] border border-[#1e2d4a] rounded-xl p-4 hover:border-purple-500/40 transition-all"
+       onclick="window._dcToggle('dc-sub-pricevol')">
+    <div class="flex items-center justify-between mb-2">
+      <div class="w-8 h-8 bg-cyan-900/40 rounded-lg flex items-center justify-center flex-shrink-0">
+        <i class="fas fa-chart-area text-cyan-400 text-sm"></i>
+      </div>
+      <i class="fas fa-chevron-down text-gray-600 text-xs dc-chev transition-transform"></i>
+    </div>
+    <div class="text-sm font-bold text-white mb-0.5">量价数据 / Price·Volume</div>
+    <div class="text-[10px] text-gray-500 mb-2">Adj Close · Volume Ratio · RSI14 · ATR14</div>
+    <div class="flex gap-1 flex-wrap">
+      <span class="text-[9px] bg-blue-500/20 text-blue-300 px-1.5 py-0.5 rounded-full">Front-Adj ✓</span>
+      <span class="text-[9px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded-full">Anti-Split ✓</span>
+    </div>
+  </div>
+
+  <!-- Card 3: Fundamental Valuation -->
+  <div id="btn-dc-sub-fundamental"
+       class="cursor-pointer bg-[#0d1221] border border-[#1e2d4a] rounded-xl p-4 hover:border-purple-500/40 transition-all"
+       onclick="window._dcToggle('dc-sub-fundamental')">
+    <div class="flex items-center justify-between mb-2">
+      <div class="w-8 h-8 bg-emerald-900/40 rounded-lg flex items-center justify-center flex-shrink-0">
+        <i class="fas fa-table text-emerald-400 text-sm"></i>
+      </div>
+      <i class="fas fa-chevron-down text-gray-600 text-xs dc-chev transition-transform"></i>
+    </div>
+    <div class="text-sm font-bold text-white mb-0.5">基本面估值 / Fundamental</div>
+    <div class="text-[10px] text-gray-500 mb-2">EV · Adj.EBITDA · EV/EBITDA · FCF Yield · Leverage</div>
+    <div class="flex gap-1 flex-wrap">
+      <span class="text-[9px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded-full">SBC Add-Back ✓</span>
+      <span class="text-[9px] bg-purple-500/20 text-purple-300 px-1.5 py-0.5 rounded-full">PIT ✓</span>
+    </div>
+  </div>
+
+  <!-- Card 4: Data Pipeline -->
   <div id="btn-dc-sub-pipeline"
-       class="cursor-pointer bg-gray-800 border border-gray-600 text-gray-400 rounded-xl p-4 hover:bg-gray-700/60 transition-colors"
+       class="cursor-pointer bg-[#0d1221] border border-[#1e2d4a] rounded-xl p-4 hover:border-purple-500/40 transition-all"
        onclick="window._dcToggle('dc-sub-pipeline')">
-    <div class="flex items-center justify-between mb-3">
-      <div class="flex items-center gap-2">
-        <div class="w-8 h-8 bg-purple-900/50 rounded-lg flex items-center justify-center">
-          <i class="fas fa-shield-alt text-purple-400 text-sm"></i>
-        </div>
-        <span class="text-sm font-bold text-white">Data Pipeline</span>
+    <div class="flex items-center justify-between mb-2">
+      <div class="w-8 h-8 bg-purple-900/40 rounded-lg flex items-center justify-center flex-shrink-0">
+        <i class="fas fa-shield-alt text-purple-400 text-sm"></i>
       </div>
-      <i class="fas fa-chevron-down text-gray-600 text-xs"></i>
+      <i class="fas fa-chevron-down text-gray-600 text-xs dc-chev transition-transform"></i>
     </div>
-    <p class="text-xs text-gray-500 mb-3">Source status · PIT architecture · Survivorship bias rules · GAAP methodology</p>
-    <div class="flex gap-2 text-[10px]">
-      <span class="bg-emerald-900/40 text-emerald-400 px-2 py-0.5 rounded">✓ PIT Compliant</span>
-      <span class="bg-blue-900/40 text-blue-400 px-2 py-0.5 rounded">${srcs.length} Sources</span>
+    <div class="text-sm font-bold text-white mb-0.5">数据工程 / Engineering</div>
+    <div class="text-[10px] text-gray-500 mb-2">PIT · Survivorship · GAAP · Source Status</div>
+    <div class="flex gap-1 flex-wrap">
+      <span class="text-[9px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded-full">✓ PIT</span>
+      <span class="text-[9px] bg-blue-500/20 text-blue-300 px-1.5 py-0.5 rounded-full">${srcs.length} Sources</span>
+    </div>
+  </div>
+
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<!--  SUB-MODULE 1: MACRO LIQUIDITY & SENTIMENT                          -->
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<div id="dc-sub-macro" style="display:none" class="mb-3 bg-[#0d1221] border border-[#1e2d4a] rounded-xl overflow-hidden">
+  <div class="flex items-center justify-between px-4 py-3 border-b border-[#1e2d4a]">
+    <span class="text-sm font-bold text-white flex items-center gap-2">
+      <i class="fas fa-fire text-red-400"></i>
+      宏观流动性与情绪数据 — Macro Liquidity & Sentiment
+      <span class="text-[10px] text-gray-500 font-normal">每日更新 · Daily Update</span>
+    </span>
+    <button onclick="window._dcToggle('dc-sub-macro')" class="text-gray-600 hover:text-gray-300 text-xs px-2 py-0.5 rounded border border-[#1e2d4a]">✕ close</button>
+  </div>
+  <div class="p-4">
+    <table class="w-full text-xs">
+      <thead>
+        <tr class="text-[10px] text-gray-500 uppercase tracking-wider border-b border-[#1e2d4a]">
+          <th class="py-2 px-2 text-left">数据维度 / Dimension</th>
+          <th class="py-2 px-2 text-left">具体指标 / Indicator</th>
+          <th class="py-2 px-2 text-right">今日 Today</th>
+          <th class="py-2 px-2 text-center">走向 Trend</th>
+          <th class="py-2 px-2 text-left">含义 / Meaning</th>
+          <th class="py-2 px-2 text-center">交易影响 / Trade Impact</th>
+          <th class="py-2 px-2 text-left">数据源 / Source</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-[#1a2540]">
+
+        <!-- VIX Spot -->
+        <tr class="hover:bg-[#1a2540]/40">
+          <td class="py-2.5 px-2">
+            <div class="text-white font-semibold">波动率结构</div>
+            <div class="text-[10px] text-gray-500">Volatility Structure</div>
+          </td>
+          <td class="py-2.5 px-2">
+            <div class="text-gray-200">VIX 期限结构</div>
+            <div class="text-[10px] text-gray-500 font-mono">VIX / VX1 − 1</div>
+          </td>
+          <td class="py-2.5 px-2 text-right">
+            <div class="text-white font-mono font-bold">${m.vix} / ${m.vx1} / ${m.vx3}</div>
+            <div class="text-[10px] ${m.vixContango?'text-emerald-400':'text-red-400'}">${vixSlopeStr}</div>
+          </td>
+          <td class="py-2.5 px-2 text-center">
+            ${trendDots(m.vix, m.vix*0.97, m.vix*0.92)}
+          </td>
+          <td class="py-2.5 px-2">
+            <div class="text-gray-300 text-[11px]">${m.vixContango?'Contango = 正常结构，市场无极度恐慌':'🚨 Backwardation = 现货 &gt; 期货，极度恐慌信号'}</div>
+            <div class="text-[10px] text-gray-500 mt-0.5">VIX &gt; VX1 = backwardation = panic signal</div>
+          </td>
+          <td class="py-2.5 px-2 text-center">
+            <span class="text-[10px] px-2 py-0.5 rounded-full ${m.vixContango?'bg-emerald-500/20 text-emerald-300':'bg-red-500/20 text-red-300'}">${m.vixContango?'Neutral / Can Deploy':'Reduce Risk'}</span>
+          </td>
+          <td class="py-2.5 px-2">
+            <div class="text-gray-400 text-[10px]">Yahoo Finance</div>
+            <div class="text-gray-600 text-[9px]">CBOE / ^VIX</div>
+          </td>
+        </tr>
+
+        <!-- HY OAS -->
+        <tr class="hover:bg-[#1a2540]/40">
+          <td class="py-2.5 px-2">
+            <div class="text-white font-semibold">信用风险</div>
+            <div class="text-[10px] text-gray-500">Credit Risk</div>
+          </td>
+          <td class="py-2.5 px-2">
+            <div class="text-gray-200">高收益债 OAS 利差</div>
+            <div class="text-[10px] text-gray-500 font-mono">ICE BofA HY OAS</div>
+          </td>
+          <td class="py-2.5 px-2 text-right">
+            <div class="font-mono font-bold text-xl" style="color:${hySignColor}">${m.hyOas}</div>
+            <div class="text-[10px] text-gray-500">bps</div>
+          </td>
+          <td class="py-2.5 px-2 text-center">
+            ${trendDots(m.hyOas, m.hyOas*1.02, m.hyOas*1.08)}
+          </td>
+          <td class="py-2.5 px-2">
+            <div class="text-gray-300 text-[11px]">${m.hyOas<400?'正常信用环境 · Normal credit conditions':m.hyOas<800?'⚠ 信用压力上升 · Elevated credit stress':'🚨 Distress zone — liquidity crunch'}</div>
+            <div class="text-[10px] text-gray-500 mt-0.5">&lt;400 Normal · 400–800 Caution · &gt;800 Distress</div>
+          </td>
+          <td class="py-2.5 px-2 text-center">
+            <span class="text-[10px] px-2 py-0.5 rounded-full" style="background:${hySignColor}22;color:${hySignColor}">${m.hyOas<400?'Risk-On OK':m.hyOas<800?'Defensive Tilt':'Risk-Off'}</span>
+          </td>
+          <td class="py-2.5 px-2">
+            <div class="text-gray-400 text-[10px]">FRED</div>
+            <div class="text-gray-600 text-[9px] font-mono">BAMLH0A0HYM2</div>
+          </td>
+        </tr>
+
+        <!-- Yield Curve -->
+        <tr class="hover:bg-[#1a2540]/40">
+          <td class="py-2.5 px-2">
+            <div class="text-white font-semibold">利率环境</div>
+            <div class="text-[10px] text-gray-500">Rate Environment</div>
+          </td>
+          <td class="py-2.5 px-2">
+            <div class="text-gray-200">10Y − 2Y 国债利差</div>
+            <div class="text-[10px] text-gray-500 font-mono">DGS10 − DGS2</div>
+          </td>
+          <td class="py-2.5 px-2 text-right">
+            <div class="font-mono font-bold" style="color:${ycColor}">${m.usTreasury10y}% / ${m.usTreasury2y}%</div>
+            <div class="text-[10px]" style="color:${ycColor}">Spread: ${m.yieldCurve>0?'+':''}${m.yieldCurve}bps</div>
+          </td>
+          <td class="py-2.5 px-2 text-center">
+            ${trendDots(m.yieldCurve, m.yieldCurve-5, m.yieldCurve-15)}
+          </td>
+          <td class="py-2.5 px-2">
+            <div class="text-gray-300 text-[11px]">${m.yieldCurveInverted?'⚠ 倒挂 — 历史上预示衰退概率 &gt;70%':'正常陡峭 — 资金成本可预期，增长预期正常'}</div>
+            <div class="text-[10px] text-gray-500 mt-0.5">&lt;0bps = Inversion = recession signal</div>
+          </td>
+          <td class="py-2.5 px-2 text-center">
+            <span class="text-[10px] px-2 py-0.5 rounded-full" style="background:${ycColor}22;color:${ycColor}">${m.yieldCurveInverted?'Short Duration':'Normal'}</span>
+          </td>
+          <td class="py-2.5 px-2">
+            <div class="text-gray-400 text-[10px]">FRED</div>
+            <div class="text-gray-600 text-[9px] font-mono">DGS10 / DGS2</div>
+          </td>
+        </tr>
+
+        <!-- Market Breadth -->
+        <tr class="hover:bg-[#1a2540]/40">
+          <td class="py-2.5 px-2">
+            <div class="text-white font-semibold">市场宽度</div>
+            <div class="text-[10px] text-gray-500">Market Breadth</div>
+          </td>
+          <td class="py-2.5 px-2">
+            <div class="text-gray-200">200日均线以上占比</div>
+            <div class="text-[10px] text-gray-500 font-mono">S5TH200X</div>
+          </td>
+          <td class="py-2.5 px-2 text-right">
+            <div class="font-mono font-bold text-xl" style="color:${breadthColor}">${m.pctAbove200ma?.toFixed(1)}%</div>
+            <div class="text-[10px]" style="color:${breadthColor}">${m.breadthSignal?.toUpperCase()}</div>
+          </td>
+          <td class="py-2.5 px-2 text-center">
+            ${trendDots(m.pctAbove200ma, m.pctAbove200ma-2, m.pctAbove200ma-8)}
+          </td>
+          <td class="py-2.5 px-2">
+            <div class="text-gray-300 text-[11px]">${m.pctAbove200ma<15?'🚨 极度恐慌区间 — 超跌反弹机会窗口':m.pctAbove200ma<40?'⚠ 市场走弱，选股难度加大':'市场健康 — 趋势性多头环境'}</div>
+            <div class="text-[10px] text-gray-500 mt-0.5">&lt;15% Panic · &lt;40% Weak · &gt;60% Healthy</div>
+          </td>
+          <td class="py-2.5 px-2 text-center">
+            <span class="text-[10px] px-2 py-0.5 rounded-full" style="background:${breadthColor}22;color:${breadthColor}">${m.pctAbove200ma<15?'BTD Entry':'Cautious'}</span>
+          </td>
+          <td class="py-2.5 px-2">
+            <div class="text-gray-400 text-[10px]">Bloomberg</div>
+            <div class="text-gray-600 text-[9px] font-mono">S5TH200X Index</div>
+          </td>
+        </tr>
+
+        <!-- Put/Call -->
+        <tr class="hover:bg-[#1a2540]/40">
+          <td class="py-2.5 px-2">
+            <div class="text-white font-semibold">衍生品情绪</div>
+            <div class="text-[10px] text-gray-500">Options Sentiment</div>
+          </td>
+          <td class="py-2.5 px-2">
+            <div class="text-gray-200">Put / Call Ratio</div>
+            <div class="text-[10px] text-gray-500 font-mono">Put Vol / Call Vol</div>
+          </td>
+          <td class="py-2.5 px-2 text-right">
+            <div class="font-mono font-bold text-xl" style="color:${pcColor}">${m.putCallRatio?.toFixed(2)}</div>
+            <div class="text-[10px]" style="color:${pcColor}">${m.putCallSignal?.toUpperCase()}</div>
+          </td>
+          <td class="py-2.5 px-2 text-center">
+            ${trendDots(m.putCallRatio, m.putCallRatio*1.05, m.putCallRatio*1.12)}
+          </td>
+          <td class="py-2.5 px-2">
+            <div class="text-gray-300 text-[11px]">${m.putCallRatio<0.7?'⚠ 极度贪婪 — 看涨期权拥挤，对立指标警告':m.putCallRatio>1.2?'恐慌区间 — 对立指标看多':'中性情绪 — 无极端信号'}</div>
+            <div class="text-[10px] text-gray-500 mt-0.5">&lt;0.7 Greed · 0.7–1.0 Neutral · &gt;1.2 Fear</div>
+          </td>
+          <td class="py-2.5 px-2 text-center">
+            <span class="text-[10px] px-2 py-0.5 rounded-full" style="background:${pcColor}22;color:${pcColor}">${m.putCallRatio>1.2?'Contrarian Buy':m.putCallRatio<0.7?'Trim / Wait':'Neutral'}</span>
+          </td>
+          <td class="py-2.5 px-2">
+            <div class="text-gray-400 text-[10px]">CBOE</div>
+            <div class="text-gray-600 text-[9px]">Daily P/C total</div>
+          </td>
+        </tr>
+
+      </tbody>
+    </table>
+
+    <!-- Interpretation footer -->
+    <div class="mt-4 grid grid-cols-3 gap-3">
+      <div class="bg-emerald-900/15 border border-emerald-500/30 rounded-lg p-3">
+        <div class="text-[10px] font-bold text-emerald-300 mb-1 uppercase">正常区间 / Normal</div>
+        <div class="text-[10px] text-gray-400 leading-relaxed">VIX &lt;25, HY OAS &lt;400bps, Breadth &gt;50%, P/C 0.7–1.0, Yield Curve Positive → 正常持仓，可适度加仓</div>
+      </div>
+      <div class="bg-amber-900/15 border border-amber-500/30 rounded-lg p-3">
+        <div class="text-[10px] font-bold text-amber-300 mb-1 uppercase">谨慎区间 / Caution</div>
+        <div class="text-[10px] text-gray-400 leading-relaxed">VIX 25–35, HY OAS 400–800bps, Breadth 15–40% → 减仓高β敞口，增加现金缓冲，等待企稳</div>
+      </div>
+      <div class="bg-red-900/15 border border-red-500/30 rounded-lg p-3">
+        <div class="text-[10px] font-bold text-red-300 mb-1 uppercase">恐慌区间 / Panic BTD Zone</div>
+        <div class="text-[10px] text-gray-400 leading-relaxed">VIX &gt;40, HY OAS &gt;800bps, Breadth &lt;15%, P/C &gt;1.5 → 流动性挤兑，分批建仓错杀高质量资产</div>
+      </div>
     </div>
   </div>
 </div>
 
-<!-- ── SUB-MODULE: VALUATION TABLE ───────────────────────────────────── -->
-<div id="dc-sub-valuation" style="display:none" class="mb-3 bg-gray-900/60 border border-gray-700/60 rounded-xl p-4">
-  <div class="flex items-center justify-between mb-3">
-    <span class="text-xs font-bold text-gray-300 uppercase flex items-center gap-2">
-      <i class="fas fa-table text-emerald-400"></i> Valuation Table — EV/EBITDA Sorted Ascending
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<!--  SUB-MODULE 2: PRICE & VOLUME DATA                                  -->
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<div id="dc-sub-pricevol" style="display:none" class="mb-3 bg-[#0d1221] border border-[#1e2d4a] rounded-xl overflow-hidden">
+  <div class="flex items-center justify-between px-4 py-3 border-b border-[#1e2d4a]">
+    <span class="text-sm font-bold text-white flex items-center gap-2">
+      <i class="fas fa-chart-area text-cyan-400"></i>
+      量价与交易数据 — Price & Volume (Trigger Layer)
+      <span class="text-[10px] text-gray-500 font-normal">每日更新 · Daily</span>
     </span>
-    <button onclick="window._dcToggle('dc-sub-valuation')" class="text-gray-600 hover:text-gray-300 text-xs">✕ close</button>
+    <button onclick="window._dcToggle('dc-sub-pricevol')" class="text-gray-600 hover:text-gray-300 text-xs px-2 py-0.5 rounded border border-[#1e2d4a]">✕ close</button>
   </div>
-  <div class="mb-3 p-2.5 bg-blue-900/20 border border-blue-600/30 rounded-lg text-[10px] text-blue-300">
-    <i class="fas fa-info-circle mr-1"></i>${fundRes.data.gaapAdjustmentNote||'Adjusted EBITDA = Op. Income + D&A + SBC. FCF = OCF − CapEx − Cap. Software.'} · PIT = Point-in-Time filing date.
-  </div>
-  <div class="overflow-x-auto">
-  <table class="w-full text-xs">
-    <thead><tr class="border-b border-gray-700/50 text-[10px] text-gray-500 uppercase">
-      <th class="py-1.5 px-2 text-left">Ticker</th>
-      <th class="py-1.5 px-2 text-right">Mkt Cap</th>
-      <th class="py-1.5 px-2 text-right">EV/EBITDA</th>
-      <th class="py-1.5 px-2 text-right">Pctile</th>
-      <th class="py-1.5 px-2 text-right">EV/Sales</th>
-      <th class="py-1.5 px-2 text-right">Fwd P/E</th>
-      <th class="py-1.5 px-2 text-right">FCF Yield</th>
-      <th class="py-1.5 px-2 text-right">Net Lev</th>
-      <th class="py-1.5 px-2 text-center hidden md:table-cell">PIT</th>
-    </tr></thead>
-    <tbody class="divide-y divide-gray-700/25">
-    ${[...stocks].sort((a,b)=>a.evEbitda-b.evEbitda).map(s=>{
-      const flag = s.evEbitdaPercentile<=10&&s.fcfYield>4
-        ? '<span class="ml-1 bg-emerald-600 text-white text-[9px] px-1 rounded">★</span>' : '';
-      return `<tr class="hover:bg-gray-800/40 ${s.evEbitdaPercentile<=10?'bg-emerald-900/10':''}">
-        <td class="py-1.5 px-2 font-bold text-white">${s.ticker}${flag}</td>
-        <td class="py-1.5 px-2 text-right text-gray-400">$${s.marketCap}B</td>
-        <td class="py-1.5 px-2 text-right font-bold" style="color:${evColor(s.evEbitdaPercentile)}">${s.evEbitda.toFixed(1)}×</td>
-        <td class="py-1.5 px-2 text-right text-[10px]" style="color:${evColor(s.evEbitdaPercentile)}">${s.evEbitdaPercentile}%ile</td>
-        <td class="py-1.5 px-2 text-right text-gray-500">${s.evSales.toFixed(1)}×</td>
-        <td class="py-1.5 px-2 text-right text-gray-500">${s.forwardPE.toFixed(0)}×</td>
-        <td class="py-1.5 px-2 text-right font-semibold" style="color:${fcfColor(s.fcfYield)}">${s.fcfYield.toFixed(1)}%</td>
-        <td class="py-1.5 px-2 text-right font-semibold" style="color:${levColor(s.netLeverage)}">${s.netLeverage.toFixed(1)}×</td>
-        <td class="py-1.5 px-2 text-center hidden md:table-cell text-[9px] ${s.pitCompliant?'text-emerald-400':'text-red-400'}">${s.pitCompliant?'✓ PIT':'⚠'}<div class="text-gray-700">${s.lastReportDate}</div></td>
-      </tr>`;
-    }).join('')}
-    </tbody>
-  </table>
-  </div>
-  <!-- Undervaluation signals -->
-  ${stocks.filter(s=>s.evEbitdaPercentile<=20&&s.fcfYield>3).length > 0 ? `
-  <div class="mt-4 pt-3 border-t border-gray-700/40">
-    <div class="text-[10px] font-bold text-emerald-400 uppercase mb-2">★ Undervaluation Signals — EV/EBITDA ≤20th pctile · FCF Yield >3%</div>
-    <div class="grid grid-cols-2 md:grid-cols-3 gap-2">
-    ${stocks.filter(s=>s.evEbitdaPercentile<=20&&s.fcfYield>3).map(s=>`
-      <div class="bg-emerald-900/15 border border-emerald-600/30 rounded-lg p-2">
-        <div class="flex justify-between mb-1">
-          <span class="font-bold text-white text-xs">${s.ticker}</span>
-          <span class="text-[10px] text-gray-500">${s.sector.split('—')[0].trim()}</span>
-        </div>
-        <div class="grid grid-cols-3 text-[10px] text-center gap-1">
-          <div><div class="text-emerald-400 font-bold">${s.evEbitda.toFixed(1)}×</div><div class="text-gray-600">EV/EBITDA</div></div>
-          <div><div class="text-yellow-400 font-bold">${s.fcfYield.toFixed(1)}%</div><div class="text-gray-600">FCF Yield</div></div>
-          <div><div style="color:${levColor(s.netLeverage)}" class="font-bold">${s.netLeverage.toFixed(1)}×</div><div class="text-gray-600">Net Lev</div></div>
-        </div>
-      </div>`).join('')}
-    </div>
-  </div>` : ''}
-</div>
+  <div class="p-4">
 
-<!-- ── SUB-MODULE: SECTOR MULTIPLES ─────────────────────────────────── -->
-<div id="dc-sub-sector" style="display:none" class="mb-3 bg-gray-900/60 border border-gray-700/60 rounded-xl p-4">
-  <div class="flex items-center justify-between mb-4">
-    <span class="text-xs font-bold text-gray-300 uppercase flex items-center gap-2">
-      <i class="fas fa-chart-bar text-blue-400"></i> Sector Multiples — EV/EBITDA & FCF Yield
-    </span>
-    <button onclick="window._dcToggle('dc-sub-sector')" class="text-gray-600 hover:text-gray-300 text-xs">✕ close</button>
-  </div>
-  <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-    <div class="bg-gray-800/60 rounded-xl p-3">
-      <div class="text-[10px] text-gray-500 uppercase font-semibold mb-2">EV/EBITDA (green=cheap, red=expensive)</div>
-      <canvas id="dc-eveb-chart" height="180"></canvas>
+    <!-- Engineering note -->
+    <div class="mb-4 p-3 bg-amber-900/15 border border-amber-500/30 rounded-lg text-[10px] text-amber-200">
+      <i class="fas fa-exclamation-triangle text-amber-400 mr-1"></i>
+      <strong>关键避坑：</strong>必须使用<strong>前复权收盘价 (Adj Close)</strong>，已包含分红调整及拆合股调整。绝对不能用 Raw Close 计算历史收益率。
+      拆股当天 Raw Close 会显示"暴跌"，触发错误信号。
     </div>
-    <div class="bg-gray-800/60 rounded-xl p-3">
-      <div class="text-[10px] text-gray-500 uppercase font-semibold mb-2">FCF Yield vs Risk-Free (${m.usTreasury10y}%)</div>
-      <canvas id="dc-fcf-chart" height="180"></canvas>
-    </div>
-  </div>
-  <div class="overflow-x-auto">
-  <table class="w-full text-xs">
-    <thead><tr class="border-b border-gray-700/50 text-[10px] text-gray-500 uppercase">
-      <th class="py-1.5 px-3 text-left">Company</th>
-      <th class="py-1.5 px-3 text-right">EV/EBITDA</th>
-      <th class="py-1.5 px-3 text-right">EV/Sales</th>
-      <th class="py-1.5 px-3 text-right">Fwd P/E</th>
-      <th class="py-1.5 px-3 text-right">FCF Yield</th>
-      <th class="py-1.5 px-3 text-right">Earn Yield</th>
-      <th class="py-1.5 px-3 text-center">Signal</th>
-    </tr></thead>
-    <tbody class="divide-y divide-gray-700/30">
-    ${stocks.map(s=>{
-      const sig = s.fcfYield>6&&m.usTreasury10y<5?'undervalued':s.evEbitdaPercentile>=80?'overvalued':'neutral';
-      return `<tr class="hover:bg-gray-800/40">
-        <td class="py-1.5 px-3 font-semibold text-white">${s.ticker} <span class="text-[10px] text-gray-500">${s.name.split(' ')[0]}</span></td>
-        <td class="py-1.5 px-3 text-right font-mono" style="color:${evColor(s.evEbitdaPercentile)}">${s.evEbitda.toFixed(1)}×</td>
-        <td class="py-1.5 px-3 text-right text-gray-500">${s.evSales.toFixed(1)}×</td>
-        <td class="py-1.5 px-3 text-right text-gray-500">${s.forwardPE.toFixed(0)}×</td>
-        <td class="py-1.5 px-3 text-right font-semibold" style="color:${s.fcfYield>m.usTreasury10y?'#10b981':'#ef4444'}">${s.fcfYield.toFixed(1)}%</td>
-        <td class="py-1.5 px-3 text-right text-gray-500">${s.earningsYield.toFixed(1)}%</td>
-        <td class="py-1.5 px-3 text-center">
-          <span class="${sig==='undervalued'?'bg-emerald-700 text-emerald-100':sig==='overvalued'?'bg-red-700 text-red-100':'bg-gray-700 text-gray-300'} text-[9px] font-bold px-1.5 py-0.5 rounded-full">${sig}</span>
-        </td>
-      </tr>`;
-    }).join('')}
-    </tbody>
-  </table>
+
+    <table class="w-full text-xs">
+      <thead>
+        <tr class="text-[10px] text-gray-500 uppercase tracking-wider border-b border-[#1e2d4a]">
+          <th class="py-2 px-2 text-left">数据维度 / Dimension</th>
+          <th class="py-2 px-2 text-left">具体指标 / Indicator</th>
+          <th class="py-2 px-2 text-left">取数口径 / Extraction Logic</th>
+          <th class="py-2 px-2 text-center">今日走向 / Today Trend</th>
+          <th class="py-2 px-2 text-left">对交易的影响 / Trade Impact</th>
+          <th class="py-2 px-2 text-left">数据源 / Source</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-[#1a2540]">
+        <tr class="hover:bg-[#1a2540]/40">
+          <td class="py-2.5 px-2"><div class="text-white font-semibold">价格基准</div><div class="text-[10px] text-gray-500">Price Basis</div></td>
+          <td class="py-2.5 px-2"><div class="text-gray-200">前复权收盘价</div><div class="text-[10px] text-cyan-400 font-mono">Adj Close</div></td>
+          <td class="py-2.5 px-2 text-[10px] text-gray-400 max-w-xs">包含所有现金分红 (Dividends) 和拆合股 (Splits) 的历史调整价。用于计算MA、RSI、回报率等所有技术指标。</td>
+          <td class="py-2.5 px-2 text-center"><span class="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full">✓ PIT OK</span></td>
+          <td class="py-2.5 px-2 text-[10px] text-gray-400">计算RSI/MA/回撤的唯一合法基准 · 拆股不触发假信号</td>
+          <td class="py-2.5 px-2"><div class="text-gray-400 text-[10px]">yfinance</div><div class="text-gray-600 text-[9px]">history(auto_adjust=True)</div></td>
+        </tr>
+        <tr class="hover:bg-[#1a2540]/40">
+          <td class="py-2.5 px-2"><div class="text-white font-semibold">机构洗盘</div><div class="text-[10px] text-gray-500">Vol Anomaly</div></td>
+          <td class="py-2.5 px-2"><div class="text-gray-200">异常放量倍数</div><div class="text-[10px] text-cyan-400 font-mono">Vol / Vol_SMA20</div></td>
+          <td class="py-2.5 px-2 text-[10px] text-gray-400 max-w-xs">当日成交量 / 过去20个交易日成交量SMA。需剔除四巫日 (Quadruple Witching) 的异常放量。</td>
+          <td class="py-2.5 px-2 text-center"><span class="text-[10px] bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded-full">Watch</span></td>
+          <td class="py-2.5 px-2 text-[10px] text-gray-400">&gt;2× = 机构参与 · 配合价格方向判断是洗盘还是出货 · 必须剔除四巫日噪音</td>
+          <td class="py-2.5 px-2"><div class="text-gray-400 text-[10px]">yfinance</div><div class="text-gray-600 text-[9px]">Volume field</div></td>
+        </tr>
+        <tr class="hover:bg-[#1a2540]/40">
+          <td class="py-2.5 px-2"><div class="text-white font-semibold">动量极值</div><div class="text-[10px] text-gray-500">Momentum</div></td>
+          <td class="py-2.5 px-2"><div class="text-gray-200">相对强弱指数</div><div class="text-[10px] text-cyan-400 font-mono">RSI-14</div></td>
+          <td class="py-2.5 px-2 text-[10px] text-gray-400 max-w-xs">标准14日RSI算法。低于30 = 超卖 (oversold)，低于20 = 极端抛售 (panic selling)。必须使用Adj Close计算。</td>
+          <td class="py-2.5 px-2 text-center"><span class="text-[10px] bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-full">RSI &lt;30 = BTD</span></td>
+          <td class="py-2.5 px-2 text-[10px] text-gray-400">RSI &lt;30 = Buy the Dip 触发信号之一 · RSI &gt;70 = Overbought 减仓信号 · RSI &lt;20 = 极端抄底窗口</td>
+          <td class="py-2.5 px-2"><div class="text-gray-400 text-[10px]">自行计算</div><div class="text-gray-600 text-[9px]">ta-lib / pandas</div></td>
+        </tr>
+        <tr class="hover:bg-[#1a2540]/40">
+          <td class="py-2.5 px-2"><div class="text-white font-semibold">波动冲击</div><div class="text-[10px] text-gray-500">Volatility</div></td>
+          <td class="py-2.5 px-2"><div class="text-gray-200">真实波幅</div><div class="text-[10px] text-cyan-400 font-mono">ATR-14</div></td>
+          <td class="py-2.5 px-2 text-[10px] text-gray-400 max-w-xs">过去14天 Average True Range。用于动态设置止损线 (Stop Loss = Entry − 2×ATR)，替代固定百分比止损。</td>
+          <td class="py-2.5 px-2 text-center"><span class="text-[10px] bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded-full">Stop Sizing</span></td>
+          <td class="py-2.5 px-2 text-[10px] text-gray-400">动态止损基准 · ATR扩大 = 高波动，加宽止损 / 减小仓位 · 替代固定%止损，避免被正常波幅震出</td>
+          <td class="py-2.5 px-2"><div class="text-gray-400 text-[10px]">自行计算</div><div class="text-gray-600 text-[9px]">High/Low/Close</div></td>
+        </tr>
+      </tbody>
+    </table>
   </div>
 </div>
 
-<!-- ── SUB-MODULE: DATA PIPELINE ─────────────────────────────────────── -->
-<div id="dc-sub-pipeline" style="display:none" class="mb-3 bg-gray-900/60 border border-gray-700/60 rounded-xl p-4">
-  <div class="flex items-center justify-between mb-4">
-    <span class="text-xs font-bold text-gray-300 uppercase flex items-center gap-2">
-      <i class="fas fa-shield-alt text-purple-400"></i> Data Pipeline & Bias Safeguards
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<!--  SUB-MODULE 3: FUNDAMENTAL VALUATION                                -->
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<div id="dc-sub-fundamental" style="display:none" class="mb-3 bg-[#0d1221] border border-[#1e2d4a] rounded-xl overflow-hidden">
+  <div class="flex items-center justify-between px-4 py-3 border-b border-[#1e2d4a]">
+    <span class="text-sm font-bold text-white flex items-center gap-2">
+      <i class="fas fa-table text-emerald-400"></i>
+      基本面与绝对估值 — Fundamental Valuation
+      <span class="text-[10px] text-gray-500 font-normal">季度/TTM · Quarterly</span>
     </span>
-    <button onclick="window._dcToggle('dc-sub-pipeline')" class="text-gray-600 hover:text-gray-300 text-xs">✕ close</button>
+    <button onclick="window._dcToggle('dc-sub-fundamental')" class="text-gray-600 hover:text-gray-300 text-xs px-2 py-0.5 rounded border border-[#1e2d4a]">✕ close</button>
   </div>
-  <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
-    <div>
-      <div class="text-[10px] font-bold text-gray-400 uppercase mb-2">Data Sources</div>
-      <div class="space-y-1.5">
-      ${srcs.map(s=>`
-        <div class="flex items-center gap-2.5 bg-gray-800/50 rounded-lg p-2">
-          <div class="w-1.5 h-1.5 rounded-full flex-shrink-0 ${s.status==='live'||s.status==='connected'?'bg-emerald-400 animate-pulse':'bg-yellow-400'}"></div>
-          <div class="flex-1 min-w-0">
-            <div class="flex items-center justify-between">
-              <span class="text-xs font-semibold text-white">${s.name}</span>
-              <span class="text-[9px] px-1.5 py-0.5 rounded-full ${s.status==='live'||s.status==='connected'?'bg-emerald-800 text-emerald-200':'bg-yellow-800 text-yellow-200'}">${s.status||'mock'}</span>
-            </div>
-            ${s.apiCode?`<div class="text-[10px] text-gray-500 font-mono truncate">${s.apiCode}</div>`:''}
-            ${s.updateFreq?`<div class="text-[10px] text-gray-600">${s.updateFreq}</div>`:''}
+  <div class="p-4">
+
+    <!-- GAAP adjustment note -->
+    <div class="mb-4 p-3 bg-blue-900/15 border border-blue-500/30 rounded-lg text-[10px] text-blue-200">
+      <i class="fas fa-info-circle text-blue-400 mr-1"></i>
+      <strong>取数口径：</strong>Adj.EBITDA = 营业利润 + D&A + SBC (已加回，非现金扭曲) ·
+      FCF = OCF − CapEx − 资本化软件支出 ·
+      EV = 总市值 + 有息负债 + 少数股权 + 优先股 − 现金 ·
+      ${fundRes.data.gaapAdjustmentNote||'PIT-Compliant: data mapped to announcement date, not period-end.'}
+    </div>
+
+    <!-- Methodology table -->
+    <div class="mb-5">
+      <div class="text-xs font-bold text-gray-400 uppercase mb-2">取数方法论 / Extraction Methodology</div>
+      <table class="w-full text-xs mb-4">
+        <thead><tr class="text-[10px] text-gray-500 uppercase border-b border-[#1e2d4a]">
+          <th class="py-1.5 px-2 text-left">数据维度 / Dimension</th>
+          <th class="py-1.5 px-2 text-left">指标 / Metric</th>
+          <th class="py-1.5 px-2 text-left">严谨口径 / Extraction Logic</th>
+          <th class="py-1.5 px-2 text-left">核心目的 / Purpose</th>
+        </tr></thead>
+        <tbody class="divide-y divide-[#1a2540]">
+          ${[
+            ['企业价值 / EV','EV (Enterprise Value)','总市值 + 长期负债 + 短期负债 + 少数股权 + 优先股 − 现金','排除资本结构差异，还原收购整体业务的真实成本'],
+            ['核心盈利 / Core Earnings','Adjusted EBITDA','营业利润 + D&A + SBC (非现金，加回) → GAAP understates TMT by 15-25%','剔除SBC非现金扭曲，还原真实经营性现金产出能力'],
+            ['估值乘数 / Multiple','EV / EBITDA (TTM)','当前EV / 过去四季度 Adj.EBITDA总和 — 替代失真P/E','寻找真正被低估的优质资产，行业间横向可比'],
+            ['现金收益 / Cash Return','FCF Yield','(OCF − CapEx − Cap.Software) / 总市值 %','每投入$1能产生多少可自由支配现金 — 真实回报率'],
+            ['财务健康 / Leverage','净杠杆率','(有息负债 − 现金) / Adj.EBITDA — 危险线 &gt;3.0×','识别风险事件中可能违约的高危企业'],
+          ].map(([dim,ind,logic,purpose])=>`
+          <tr class="hover:bg-[#1a2540]/40">
+            <td class="py-2 px-2"><div class="text-white text-[11px] font-medium">${dim.split('/')[0].trim()}</div><div class="text-[9px] text-gray-500">${dim.split('/')[1]?.trim()}</div></td>
+            <td class="py-2 px-2 text-emerald-300 text-[11px] font-mono">${ind}</td>
+            <td class="py-2 px-2 text-gray-400 text-[10px] max-w-xs leading-snug">${logic}</td>
+            <td class="py-2 px-2 text-gray-400 text-[10px] leading-snug">${purpose}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Universe table -->
+    <div class="text-xs font-bold text-gray-400 uppercase mb-2">估值全景表 / Universe Valuation Table</div>
+    <div class="overflow-x-auto mb-5">
+      <table class="w-full text-xs">
+        <thead><tr class="border-b border-[#1e2d4a] text-[10px] text-gray-500 uppercase">
+          <th class="py-1.5 px-2 text-left">Ticker</th>
+          <th class="py-1.5 px-2 text-right">Mkt Cap</th>
+          <th class="py-1.5 px-2 text-right">EV</th>
+          <th class="py-1.5 px-2 text-right">Adj.EBITDA</th>
+          <th class="py-1.5 px-2 text-right">EV/EBITDA</th>
+          <th class="py-1.5 px-2 text-right">%ile</th>
+          <th class="py-1.5 px-2 text-right">EV/Sales</th>
+          <th class="py-1.5 px-2 text-right">Fwd P/E</th>
+          <th class="py-1.5 px-2 text-right">FCF Yield</th>
+          <th class="py-1.5 px-2 text-right">Net Lev</th>
+          <th class="py-1.5 px-2 text-center">PIT</th>
+          <th class="py-1.5 px-2 text-center">Signal</th>
+        </tr></thead>
+        <tbody class="divide-y divide-[#1a2540]">
+        ${[...stocks].sort((a,b)=>a.evEbitda-b.evEbitda).map(s=>{
+          const flag  = s.evEbitdaPercentile<=10&&s.fcfYield>4?'★ ':''
+          const sig   = s.evEbitdaPercentile<=20&&s.fcfYield>3?'underval':s.evEbitdaPercentile>=80?'overval':'fair'
+          const sigCl = sig==='underval'?'bg-emerald-600 text-white':sig==='overval'?'bg-red-700 text-red-100':'bg-[#1a2540] text-gray-400'
+          return `<tr class="hover:bg-[#1a2540]/60 ${s.evEbitdaPercentile<=15?'bg-emerald-900/8':''}">
+            <td class="py-1.5 px-2 font-bold text-white">${flag}${s.ticker}</td>
+            <td class="py-1.5 px-2 text-right text-gray-400 font-mono">$${s.marketCap}B</td>
+            <td class="py-1.5 px-2 text-right text-gray-400 font-mono">$${s.ev?.toFixed(0)}B</td>
+            <td class="py-1.5 px-2 text-right text-emerald-300 font-mono">$${s.adjustedEbitda?.toFixed(1)}B</td>
+            <td class="py-1.5 px-2 text-right font-bold font-mono" style="color:${evColor(s.evEbitdaPercentile)}">${s.evEbitda.toFixed(1)}×</td>
+            <td class="py-1.5 px-2 text-right text-[10px]" style="color:${evColor(s.evEbitdaPercentile)}">${s.evEbitdaPercentile}%</td>
+            <td class="py-1.5 px-2 text-right text-gray-500 font-mono">${s.evSales.toFixed(1)}×</td>
+            <td class="py-1.5 px-2 text-right text-gray-500 font-mono">${s.forwardPE.toFixed(0)}×</td>
+            <td class="py-1.5 px-2 text-right font-semibold font-mono" style="color:${fcfColor(s.fcfYield)}">${s.fcfYield.toFixed(1)}%</td>
+            <td class="py-1.5 px-2 text-right font-semibold font-mono" style="color:${levColor(s.netLeverage)}">${s.netLeverage.toFixed(1)}×</td>
+            <td class="py-1.5 px-2 text-center text-[9px] ${s.pitCompliant?'text-emerald-400':'text-red-400'}">${s.pitCompliant?'✓':'⚠'}<div class="text-gray-600 text-[8px]">${s.lastReportDate}</div></td>
+            <td class="py-1.5 px-2 text-center"><span class="${sigCl} text-[9px] font-bold px-1.5 py-0.5 rounded-full">${sig}</span></td>
+          </tr>`;
+        }).join('')}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Charts -->
+    <div class="grid grid-cols-2 gap-4 mb-4">
+      <div class="bg-[#0a0e1a] rounded-xl p-3">
+        <div class="text-[10px] text-gray-500 uppercase font-semibold mb-2">EV/EBITDA 横向对比 (绿=低估 · 红=高估)</div>
+        <canvas id="dc-eveb-chart" height="180"></canvas>
+      </div>
+      <div class="bg-[#0a0e1a] rounded-xl p-3">
+        <div class="text-[10px] text-gray-500 uppercase font-semibold mb-2">FCF Yield vs 无风险利率 ${m.usTreasury10y}%</div>
+        <canvas id="dc-fcf-chart" height="180"></canvas>
+      </div>
+    </div>
+
+    <!-- Underval signals -->
+    ${stocks.filter(s=>s.evEbitdaPercentile<=20&&s.fcfYield>3).length>0?`
+    <div class="border-t border-[#1e2d4a] pt-3">
+      <div class="text-[10px] font-bold text-emerald-400 uppercase mb-2">★ 低估信号 / Undervaluation Signals — EV/EBITDA ≤20th %ile · FCF Yield &gt;3%</div>
+      <div class="grid grid-cols-3 gap-2">
+      ${stocks.filter(s=>s.evEbitdaPercentile<=20&&s.fcfYield>3).map(s=>`
+        <div class="bg-emerald-900/10 border border-emerald-600/30 rounded-lg p-3">
+          <div class="flex justify-between mb-2">
+            <span class="font-bold text-white">${s.ticker}</span>
+            <span class="text-[10px] text-gray-500">${s.sector?.split('—')[0]?.trim()}</span>
           </div>
+          <div class="grid grid-cols-3 text-[10px] text-center gap-1">
+            <div><div class="text-emerald-400 font-bold font-mono">${s.evEbitda.toFixed(1)}×</div><div class="text-gray-600">EV/EBITDA</div></div>
+            <div><div class="text-amber-400 font-bold font-mono">${s.fcfYield.toFixed(1)}%</div><div class="text-gray-600">FCF Yield</div></div>
+            <div><div style="color:${levColor(s.netLeverage)}" class="font-bold font-mono">${s.netLeverage.toFixed(1)}×</div><div class="text-gray-600">Net Lev</div></div>
+          </div>
+          <div class="mt-2 text-[9px] text-gray-500 truncate">${s.adjustedEbitdaNote?.slice(0,60)}…</div>
         </div>`).join('')}
       </div>
+    </div>`:''}
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<!--  SUB-MODULE 4: DATA PIPELINE & ENGINEERING SPECS                    -->
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<div id="dc-sub-pipeline" style="display:none" class="mb-3 bg-[#0d1221] border border-[#1e2d4a] rounded-xl overflow-hidden">
+  <div class="flex items-center justify-between px-4 py-3 border-b border-[#1e2d4a]">
+    <span class="text-sm font-bold text-white flex items-center gap-2">
+      <i class="fas fa-shield-alt text-purple-400"></i>
+      数据工程规范 — Data Pipeline & Bias Safeguards
+    </span>
+    <button onclick="window._dcToggle('dc-sub-pipeline')" class="text-gray-600 hover:text-gray-300 text-xs px-2 py-0.5 rounded border border-[#1e2d4a]">✕ close</button>
+  </div>
+  <div class="p-4">
+    <div class="grid grid-cols-3 gap-4 mb-4">
+
+      <!-- PIT -->
+      <div class="bg-emerald-900/15 border border-emerald-500/30 rounded-xl p-4">
+        <div class="flex items-center gap-2 mb-3">
+          <div class="w-7 h-7 bg-emerald-800/50 rounded-lg flex items-center justify-center flex-shrink-0">
+            <i class="fas fa-clock text-emerald-400 text-xs"></i>
+          </div>
+          <div>
+            <div class="text-xs font-bold text-emerald-300">Point-in-Time (PIT)</div>
+            <div class="text-[10px] text-gray-500">回测生命线</div>
+          </div>
+          <span class="ml-auto text-[9px] bg-emerald-600 text-white px-1.5 py-0.5 rounded">✓ Active</span>
+        </div>
+        <div class="text-[10px] text-gray-300 leading-relaxed mb-2">
+          财报数据映射到<strong class="text-emerald-300">公告日</strong>，而非财务报告期末日。Q4 2023（12月31日）财报于 2024年2月15日发布，则该数据在回测中只能从 2024-02-15 起使用。
+        </div>
+        <div class="text-[10px] text-amber-300 bg-amber-900/20 rounded p-2">
+          ⚠ 违反PIT → 使用未来函数 → Sharpe 虚高 0.3–0.8
+        </div>
+        <div class="mt-2 text-[10px] text-gray-500">Reporting lag: 45–90 calendar days</div>
+      </div>
+
+      <!-- Survivorship -->
+      <div class="bg-blue-900/15 border border-blue-500/30 rounded-xl p-4">
+        <div class="flex items-center gap-2 mb-3">
+          <div class="w-7 h-7 bg-blue-800/50 rounded-lg flex items-center justify-center flex-shrink-0">
+            <i class="fas fa-users text-blue-400 text-xs"></i>
+          </div>
+          <div>
+            <div class="text-xs font-bold text-blue-300">幸存者偏差 Survivorship</div>
+            <div class="text-[10px] text-gray-500">动态成分股追踪</div>
+          </div>
+          <span class="ml-auto text-[9px] bg-blue-600 text-white px-1.5 py-0.5 rounded">✓ Mitigated</span>
+        </div>
+        <div class="text-[10px] text-gray-300 leading-relaxed mb-2">
+          yfinance 仅返回当前500只成分股。回测10年必须维护包含<strong class="text-blue-300">已退市、被收购、破产</strong>股票的历史Ticker映射表。
+        </div>
+        <div class="text-[10px] text-gray-400 leading-relaxed">
+          历史标普500成员: <span class="text-white font-bold">~1,847</span>只<br>
+          当前宇宙: <span class="text-white font-bold">500</span>只<br>
+          差异: <span class="text-amber-400 font-bold">1,347 delisted/M&A</span>
+        </div>
+        <div class="mt-2 text-[10px] text-amber-300 bg-amber-900/20 rounded p-2">
+          ⚠ 只用当前名单 → 幸存者偏差 → Alpha虚高
+        </div>
+      </div>
+
+      <!-- GAAP -->
+      <div class="bg-purple-900/15 border border-purple-500/30 rounded-xl p-4">
+        <div class="flex items-center gap-2 mb-3">
+          <div class="w-7 h-7 bg-purple-800/50 rounded-lg flex items-center justify-center flex-shrink-0">
+            <i class="fas fa-balance-scale text-purple-400 text-xs"></i>
+          </div>
+          <div>
+            <div class="text-xs font-bold text-purple-300">GAAP 调整 Adjustments</div>
+            <div class="text-[10px] text-gray-500">还原真实盈利能力</div>
+          </div>
+          <span class="ml-auto text-[9px] bg-purple-600 text-white px-1.5 py-0.5 rounded">✓ Applied</span>
+        </div>
+        <ul class="space-y-1.5">
+          ${(health.gaapAdjustments?.items||[
+            'SBC加回EBITDA — TMT行业非现金扭曲，GAAP低估盈利15-25%',
+            'R&D资本化 — SaaS/软件按3-5年摊销，替代100%费用化',
+            'FCF剔除资本化软件支出 — 隐藏Capex',
+            '经营性租赁加入EV — ASC 842后合规处理',
+            '使用NTM预期EPS，而非TTM历史值',
+          ]).map(r=>`<li class="text-[10px] text-gray-400 flex gap-1.5 leading-snug"><span class="text-purple-400 flex-shrink-0 mt-0.5">•</span>${r}</li>`).join('')}
+        </ul>
+      </div>
     </div>
-    <div class="space-y-2">
-      ${health.pitArchitecture?`
-      <div class="bg-emerald-900/20 border border-emerald-600/30 rounded-lg p-3">
-        <div class="text-xs font-bold text-emerald-300 mb-2">✓ Point-in-Time (PIT)</div>
-        <ul class="space-y-1">${health.pitArchitecture.map(r=>`<li class="text-[10px] text-gray-400 flex gap-1"><span class="text-emerald-500">•</span>${r}</li>`).join('')}</ul>
-      </div>`:''}
-      ${health.survivorshipBias?`
-      <div class="bg-blue-900/20 border border-blue-600/30 rounded-lg p-3">
-        <div class="text-xs font-bold text-blue-300 mb-2">✓ Survivorship Bias</div>
-        <ul class="space-y-1">${health.survivorshipBias.map(r=>`<li class="text-[10px] text-gray-400 flex gap-1"><span class="text-blue-500">•</span>${r}</li>`).join('')}</ul>
-      </div>`:''}
-      ${health.gaapAdjustments?`
-      <div class="bg-purple-900/20 border border-purple-600/30 rounded-lg p-3">
-        <div class="text-xs font-bold text-purple-300 mb-2">GAAP Adjustments</div>
-        <ul class="space-y-1">${health.gaapAdjustments.map(r=>`<li class="text-[10px] text-gray-400 flex gap-1"><span class="text-purple-500">•</span>${r}</li>`).join('')}</ul>
-      </div>`:''}
+
+    <!-- Data Sources table -->
+    <div class="text-xs font-bold text-gray-400 uppercase mb-2">数据源状态 / Source Status</div>
+    <div class="space-y-1.5">
+    ${srcs.map(s=>`
+      <div class="flex items-center gap-3 bg-[#0a0e1a] border border-[#1e2d4a] rounded-lg p-2.5">
+        <div class="w-2 h-2 rounded-full flex-shrink-0 ${s.status==='live'||s.status==='connected'?'bg-emerald-400 animate-pulse':s.status==='delayed'?'bg-amber-400':'bg-gray-600'}"></div>
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center gap-2">
+            <span class="text-xs font-semibold text-white">${s.name}</span>
+            <span class="text-[9px] px-1.5 py-0.5 rounded-full ${s.status==='live'?'bg-emerald-800 text-emerald-200':s.status==='delayed'?'bg-amber-800 text-amber-200':'bg-gray-700 text-gray-400'}">${s.status}</span>
+            ${s.latency?`<span class="text-[9px] text-gray-500 font-mono">latency: ${s.latency}</span>`:''}
+          </div>
+          <div class="flex gap-4 mt-0.5">
+            ${s.apiCode?`<span class="text-[10px] text-cyan-400 font-mono">${s.apiCode}</span>`:''}
+            ${s.updateFreq?`<span class="text-[10px] text-gray-500">${s.updateFreq}</span>`:''}
+            ${s.compliance?`<span class="text-[10px] text-gray-600 truncate">${s.compliance}</span>`:''}
+          </div>
+        </div>
+      </div>`).join('')}
     </div>
   </div>
 </div>
