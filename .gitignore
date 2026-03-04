@@ -31,3 +31,12 @@ lerna-debug.log*
 
 # misc
 .DS_Store
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Data service local storage (date+time snapshots)
+data_service/modules/*/storage/
+data_service/bloomberg_archive.db

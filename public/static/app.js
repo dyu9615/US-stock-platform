@@ -705,19 +705,157 @@ async function renderDashboard(el) {
 }
 
 // ╔══════════════════════════════════════════════════════════════════════╗
-// ║  2. DATA CENTER — Institutional Monitoring Framework v2              ║
+// ║  2. DATA CENTER — Raw Data Center with Refresh Button                ║
 // ╚══════════════════════════════════════════════════════════════════════╝
 async function renderDataCenter(el) {
   el.innerHTML = `<div class="flex items-center justify-center h-32 text-gray-500">
     <i class="fas fa-spinner fa-spin mr-2"></i>Loading Data Center…</div>`;
   try {
-    const [fundRes, erpRes, healthRes, macroRes, liveMacroRes] = await Promise.allSettled([
-      axios.get(`${API}/api/dc/fundamental`),
-      axios.get(`${API}/api/dc/erp/current`),
-      axios.get(`${API}/api/dc/health`),
-      axios.get(`${API}/api/dc/macro/current`),
-      axios.get(`${API}/api/live/macro`),
+    const [dcRes, macroRes, snapsRes] = await Promise.allSettled([
+      axios.get(`${API}/api/dc/data`),
+      axios.get(`${API}/api/yf/macro`),
+      axios.get(`${API}/api/dc/snapshots`),
     ]);
+    const dcData = dcRes.status === 'fulfilled' ? dcRes.value.data : {};
+    const stocks = dcData.stocks || [];
+    const needsRefresh = dcData.needsRefresh || stocks.length === 0;
+    const lastUpdated = dcData.lastUpdated || dcData.fetchedAt || null;
+    const macro = macroRes.status === 'fulfilled' ? macroRes.value.data : {};
+    const snapshots = snapsRes.status === 'fulfilled' ? snapsRes.value.data : {};
+
+    // Refresh handler
+    window._dcRefresh = async function() {
+      const btn = document.getElementById('dc-refresh-btn');
+      const status = document.getElementById('dc-refresh-status');
+      if (btn) btn.disabled = true;
+      if (btn) btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Fetching data...';
+      if (status) status.textContent = 'Fetching data from Yahoo Finance... This may take 1-2 minutes.';
+      try {
+        const { data } = await axios.post(`${API}/api/dc/refresh`);
+        if (status) status.innerHTML = `<span class="text-emerald-600">Fetched ${data.count}/${data.universe_size} tickers. Stored locally.</span>`;
+        setTimeout(() => navigate('datacenter'), 1500);
+      } catch(e) {
+        if (status) status.innerHTML = `<span class="text-red-500">Error: ${e.message}</span>`;
+      }
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-sync-alt mr-1"></i>Refresh Data'; }
+    };
+
+    el.innerHTML = `
+<div class="flex items-start justify-between mb-4">
+  <div>
+    <h2 class="text-xl font-bold text-gray-900 flex items-center gap-2">
+      <i class="fas fa-database text-indigo-600"></i>
+      数据中心 Data Center
+      <span class="text-[11px] bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">Raw Data</span>
+    </h2>
+    <p class="text-gray-500 text-xs mt-0.5">
+      机构级底层数据 · 按日期+时间存储 · Yahoo Finance数据源
+      ${lastUpdated ? ' · Last: <b>'+lastUpdated+'</b>' : ' · <span class="text-amber-600">No data yet</span>'}
+    </p>
+  </div>
+  <div class="flex items-center gap-3">
+    <button id="dc-refresh-btn" onclick="window._dcRefresh()"
+      class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded-lg transition-all shadow">
+      <i class="fas fa-sync-alt mr-1"></i>Refresh Data
+    </button>
+    <div class="text-right text-[10px]">
+      <div id="dc-refresh-status" class="text-gray-500">${needsRefresh ? 'Click Refresh to fetch data' : stocks.length + ' stocks loaded'}</div>
+      <div class="text-gray-400 mt-0.5">${(snapshots.snapshots||[]).length} snapshots stored</div>
+    </div>
+  </div>
+</div>
+
+${macro.vix ? `
+<div class="grid grid-cols-4 gap-3 mb-4">
+  <div class="bg-white border border-gray-200 rounded-xl p-3 shadow-sm">
+    <div class="text-[10px] text-gray-500 uppercase mb-1">VIX</div>
+    <div class="text-2xl font-bold ${macro.vix>30?'text-red-500':macro.vix>20?'text-amber-500':'text-emerald-500'}">${macro.vix}</div>
+    <div class="text-[10px] text-gray-400">${macro.vixContango?'Contango':'Backwardation'}</div>
+  </div>
+  <div class="bg-white border border-gray-200 rounded-xl p-3 shadow-sm">
+    <div class="text-[10px] text-gray-500 uppercase mb-1">10Y Treasury</div>
+    <div class="text-2xl font-bold text-gray-900">${macro.usTreasury10y}%</div>
+    <div class="text-[10px] text-gray-400">2Y: ${macro.usTreasury2y}%</div>
+  </div>
+  <div class="bg-white border border-gray-200 rounded-xl p-3 shadow-sm">
+    <div class="text-[10px] text-gray-500 uppercase mb-1">Yield Curve</div>
+    <div class="text-2xl font-bold ${macro.yieldCurve<0?'text-red-500':'text-emerald-500'}">${macro.yieldCurve>0?'+':''}${macro.yieldCurve}%</div>
+    <div class="text-[10px] text-gray-400">10Y - 2Y spread</div>
+  </div>
+  <div class="bg-white border border-gray-200 rounded-xl p-3 shadow-sm">
+    <div class="text-[10px] text-gray-500 uppercase mb-1">SPY</div>
+    <div class="text-2xl font-bold text-gray-900">$${macro.spyPrice}</div>
+    <div class="text-[10px] text-gray-400">S&P 500 ETF</div>
+  </div>
+</div>` : ''}
+
+${needsRefresh ? `
+<div class="bg-amber-50 border border-amber-200 rounded-xl p-8 text-center mb-4">
+  <i class="fas fa-database text-amber-400 text-4xl mb-3"></i>
+  <div class="text-amber-800 font-bold text-lg mb-1">No Local Data</div>
+  <div class="text-amber-600 text-sm mb-4">Click "Refresh Data" to fetch raw data from Yahoo Finance and store locally.</div>
+  <button onclick="window._dcRefresh()" class="px-6 py-2 bg-amber-500 hover:bg-amber-600 text-white font-semibold rounded-lg transition">
+    <i class="fas fa-download mr-2"></i>Fetch Data Now
+  </button>
+</div>` : `
+
+<div class="text-xs font-bold text-gray-500 uppercase mb-2">Universe: ${stocks.length} stocks · Fields: 股票/板块/股价/市值/Fwd PE/EV·EBITDA/Rev增速/毛利率/ROE/FCF率/Beta</div>
+<div class="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
+  <div class="overflow-x-auto" style="max-height:600px;overflow-y:auto">
+    <table class="w-full text-xs">
+      <thead class="bg-gray-50 sticky top-0">
+        <tr class="text-[10px] text-gray-500 uppercase tracking-wider">
+          <th class="py-2 px-2 text-left">股票 Ticker</th>
+          <th class="py-2 px-2 text-left">板块 Sector</th>
+          <th class="py-2 px-2 text-right">股价 Price</th>
+          <th class="py-2 px-2 text-right">涨跌%</th>
+          <th class="py-2 px-2 text-right">市值($B)</th>
+          <th class="py-2 px-2 text-right">Fwd PE</th>
+          <th class="py-2 px-2 text-right">EV/EBITDA</th>
+          <th class="py-2 px-2 text-right">Rev增速%</th>
+          <th class="py-2 px-2 text-right">毛利率%</th>
+          <th class="py-2 px-2 text-right">ROE%</th>
+          <th class="py-2 px-2 text-right">FCF率%</th>
+          <th class="py-2 px-2 text-right">Beta</th>
+          <th class="py-2 px-2 text-center">Deep</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100">
+      ${stocks.map(s => `<tr class="hover:bg-indigo-50/50 transition-colors group">
+        <td class="py-2 px-2">
+          <div class="font-bold text-gray-900">${s.ticker}</div>
+          <div class="text-[10px] text-gray-400 truncate max-w-[120px]">${(s.name||'').slice(0,18)}</div>
+        </td>
+        <td class="py-2 px-2 text-gray-500 text-[10px]">${(s.sector||'').slice(0,14)}</td>
+        <td class="py-2 px-2 text-right font-mono font-bold text-gray-800">$${(s.price||0).toFixed(2)}</td>
+        <td class="py-2 px-2 text-right font-mono ${(s.changePct||0)>=0?'text-emerald-600':'text-red-600'}">${(s.changePct||0)>=0?'+':''}${(s.changePct||0).toFixed(2)}%</td>
+        <td class="py-2 px-2 text-right font-mono text-gray-600">$${(s.marketCap||0).toFixed(0)}B</td>
+        <td class="py-2 px-2 text-right font-mono ${(s.forwardPE||0)>40?'text-amber-600':'text-gray-700'}">${(s.forwardPE||0)>0?(s.forwardPE||0).toFixed(1):'N/A'}</td>
+        <td class="py-2 px-2 text-right font-mono text-gray-600">${(s.evEbitda||0)>0?(s.evEbitda||0).toFixed(1):'N/A'}</td>
+        <td class="py-2 px-2 text-right font-mono font-bold ${(s.revenueGrowth||0)>=20?'text-emerald-600':(s.revenueGrowth||0)>=10?'text-amber-600':'text-gray-500'}">${(s.revenueGrowth||0)>0?'+':''}${(s.revenueGrowth||0).toFixed(1)}%</td>
+        <td class="py-2 px-2 text-right font-mono ${(s.grossMargin||0)>=50?'text-emerald-600':'text-gray-600'}">${(s.grossMargin||0).toFixed(1)}%</td>
+        <td class="py-2 px-2 text-right font-mono text-gray-600">${(s.roe||0).toFixed(1)}%</td>
+        <td class="py-2 px-2 text-right font-mono text-gray-600">${(s.fcfYield||0).toFixed(1)}%</td>
+        <td class="py-2 px-2 text-right font-mono text-gray-500">${(s.beta||1).toFixed(2)}</td>
+        <td class="py-2 px-2 text-center">
+          <button onclick="window._saLastTicker='${s.ticker}';navigate('stockanalysis')"
+            class="px-2 py-1 rounded text-[10px] font-semibold text-indigo-600 hover:bg-indigo-50 border border-indigo-200 opacity-0 group-hover:opacity-100 transition">
+            <i class="fas fa-microscope mr-0.5"></i>Deep
+          </button>
+        </td>
+      </tr>`).join('')}
+      </tbody>
+    </table>
+  </div>
+</div>`}
+`;
+
+    // dummy: keep original variable names alive so rest of the file doesn't break
+    const fundRes = dcRes; const erpRes = dcRes; const healthRes = dcRes; const liveMacroRes = macroRes;
+    const stocks_orig = stocks;
+    const e = {}; const health = { dataSources: [] };
+    const mockM = macro; const liveM = macro;
+    const m = macro; const srcs = [];
     const stocks = fundRes.status==='fulfilled' ? (fundRes.value.data.data || []) : [];
     const e      = erpRes.status==='fulfilled' ? erpRes.value.data : {};
     const health = healthRes.status==='fulfilled' ? healthRes.value.data : { dataSources:[] };
